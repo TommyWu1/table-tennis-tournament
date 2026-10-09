@@ -1,0 +1,21 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.vercel/
+supabase/.temp/
+
+# Local event data and backups
+exports/
+backups/
+tmp/
+
+# Logs and operating-system files
+*.log
+.DS_Store
