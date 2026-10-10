@@ -25,3 +25,22 @@ export function effectiveSeedValue(player: {
 }): number {
   return isProvisional(player.ratedMatchCount) ? estimateRating(player.experience) : player.rating;
 }
+
+/** A lower-bound table-time estimate from total fixture workload. */
+export function minimumTableMinutes(
+  matchCount: number,
+  tableCount: number,
+  averageMatchMinutes: number,
+): number {
+  if (!Number.isInteger(matchCount) || matchCount < 0) {
+    throw new RangeError('Match count must be a non-negative integer.');
+  }
+  if (!Number.isInteger(tableCount) || tableCount < 1) {
+    throw new RangeError('Table count must be a positive integer.');
+  }
+  if (!Number.isFinite(averageMatchMinutes) || averageMatchMinutes <= 0) {
+    throw new RangeError('Average match minutes must be a positive finite number.');
+  }
+
+  return Math.ceil((matchCount * averageMatchMinutes) / tableCount);
+}
