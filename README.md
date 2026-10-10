@@ -33,9 +33,11 @@ The default setup is 20 players, three tables, a four-hour booking and a $10 CAD
 
 Follow [Supabase setup](supabase/README.md), create organizer and scorekeeper accounts, and copy `.env.example` to `.env.local` with your project URL and publishable key. Admins manage events and payments; scorekeepers see the active scoreboard and enter played results.
 
+The [live shared workspace](https://table-tennis-tournament-phi.vercel.app/) is connected to Supabase. Its migrations and public connection settings are configured. Each team account still needs an Auth user and a matching role profile before it can sign in. The practice demo remains separate from shared records.
+
 For Vercel, use the Vite preset (`npm run build`, output `dist`) and add the same two environment variables. Shared login and device syncing require a configured Supabase project; the included local database smoke checks use a test-only Auth shim.
 
-The app is deployed as `table-tennis-tournament` on Vercel. To redeploy from an authenticated, linked checkout, run `vercel deploy --prod`. Automatic deployments require connecting this GitHub repository in the Vercel project's Git settings.
+The app is deployed as `table-tennis-tournament` on Vercel, with this repository connected and `main` selected as the production branch. To redeploy manually from an authenticated, linked checkout, run `vercel deploy --prod`.
 
 ## Development
 
