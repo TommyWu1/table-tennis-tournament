@@ -11,7 +11,9 @@ npm ci
 npm run dev
 ```
 
-Open the address Vite prints. Without Supabase settings, the app starts in **Local demo** with sample players. Changes persist in that browser on your laptop; they do not sync to other devices. Export event JSON or CSV to keep a separate copy of your records.
+Open the address Vite prints. Without Supabase settings, the app starts in a practice demo with **19 new, unrated players**. Nothing has started: check players in, record payments, preview groups, then enter scores yourself. Changes persist in that browser; they do not sync to other devices. Export JSON or CSV to keep a separate copy of your records.
+
+The practice demo is also available at `/?demo=1` when shared login is configured. It never writes to the shared database. **Reset demo** restores the 19-player starting roster whenever you want another rehearsal.
 
 ## What it does
 

@@ -52,7 +52,7 @@ export function Players({ players, onCreate, onUpdate, onArchive, readOnly = fal
       {visible.map((player) => <PlayerRow key={player.id} player={player} readOnly={readOnly} busy={busy} onUpdate={onUpdate} onArchive={onArchive} onMessage={setMessage} />)}
       {!visible.length && <tr><td colSpan={6} className="empty-row">No players match this search.</td></tr>}
     </tbody></table></div>
-    <p className="table-note">New players start at 1000 rating. Ratings change only when an admin finishes an event; experience estimates do not change stored rating.</p>
+    <p className="table-note">New players are unrated until they have played results. Elo uses an equal starting baseline of 1000 and updates when an admin finishes an event.</p>
   </section>;
 }
 
@@ -77,7 +77,7 @@ function PlayerRow({ player, readOnly, busy, onUpdate, onArchive, onMessage }: {
   return <tr>
     <th scope="row">{editing ? <div className="inline-edit"><input aria-label="Player name" value={name} onChange={(event) => setName(event.currentTarget.value)} /><input aria-label="Player label" value={label} onChange={(event) => setLabel(event.currentTarget.value)} placeholder="Label" /></div> : <><span className="table-player-name">{player.name}</span>{player.label && <small>{player.label}</small>}</>}</th>
     <td>{editing ? <select aria-label="Player experience" value={experience} onChange={(event) => setExperience(event.currentTarget.value as Experience)}><option value="unknown">Unknown</option><option value="beginner">Beginner</option><option value="casual">Casual</option><option value="club">Club</option><option value="varsity">Varsity</option></select> : player.experience}</td>
-    <td><strong>{Math.round(player.rating)}</strong></td><td>{player.ratedMatchCount}{player.ratedMatchCount < 5 && <span className="badge">provisional</span>}</td><td>{player.archived ? <span className="status-text status-withdrawn">Archived</span> : 'Active'}</td>
+    <td><strong>{player.ratedMatchCount === 0 ? 'Unrated' : Math.round(player.rating)}</strong></td><td>{player.ratedMatchCount}{player.ratedMatchCount > 0 && player.ratedMatchCount < 5 && <span className="badge">provisional</span>}</td><td>{player.archived ? <span className="status-text status-withdrawn">Archived</span> : 'Active'}</td>
     <td className="row-actions">{!readOnly && !player.archived && (editing ? <><button className="text-button" type="button" disabled={busy} onClick={() => void save()}>Save</button><button className="text-button" type="button" onClick={() => { setEditing(false); setName(player.name); setLabel(player.label ?? ''); setExperience(player.experience); }}>Cancel</button></> : <><button className="text-button" type="button" onClick={() => { onMessage(null); setEditing(true); }}>Edit</button><button className="text-button danger-text" type="button" disabled={busy} onClick={async () => { if (!window.confirm('Archive ' + player.name + '? Their event history will remain.')) return; const error = await onArchive(player.id); onMessage(error ?? 'Player archived.'); }}>Archive</button></>)}</td>
   </tr>;
 }

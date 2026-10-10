@@ -74,7 +74,7 @@ export function downloadRosterCsv(state: DemoState, eventId: string): void {
       entry.checkedIn ? 'Yes' : 'No', entry.paid ? 'Yes' : 'No', entry.paymentMethod ?? '',
       (baseFee / 100).toFixed(2), (discount / 100).toFixed(2), (amountPaid / 100).toFixed(2),
       ((baseFee - discount - amountPaid) / 100).toFixed(2), entry.paymentNote ?? '',
-      player?.rating ?? '', player?.ratedMatchCount ?? '', entry.groupIndex ?? '', entry.seedPosition ?? '',
+      player?.ratedMatchCount === 0 ? 'Unrated' : player?.rating ?? '', player?.ratedMatchCount ?? '', entry.groupIndex ?? '', entry.seedPosition ?? '',
       entry.ratingBefore ?? '', entry.ratingAfter ?? '',
     ]);
   }

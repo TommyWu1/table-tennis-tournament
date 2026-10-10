@@ -22,7 +22,8 @@ import type {
   Tournament,
 } from '../types';
 
-const STORAGE_KEY = 'table-tennis-manager:local-demo:v1';
+// Keep the previous demo snapshot untouched while starting the new rehearsal fresh.
+const STORAGE_KEY = 'table-tennis-manager:local-demo:v2';
 
 export interface DemoMatch {
   id: Id;
@@ -78,20 +79,20 @@ function nowIso(): string {
 
 function seedDemoState(): DemoState {
   const now = nowIso();
-  const people: Array<Pick<Player, 'id' | 'name' | 'label' | 'experience' | 'rating' | 'ratedMatchCount'>> = [
-    { id: 'demo-player-avery', name: 'Avery Chen', label: 'Varsity', experience: 'varsity', rating: 1428, ratedMatchCount: 18 },
-    { id: 'demo-player-maya', name: 'Maya Patel', label: 'Club', experience: 'club', rating: 1262, ratedMatchCount: 12 },
-    { id: 'demo-player-jordan', name: 'Jordan Brooks', label: 'Varsity', experience: 'varsity', rating: 1376, ratedMatchCount: 9 },
-    { id: 'demo-player-lina', name: 'Lina Okafor', label: 'Club', experience: 'club', rating: 1198, ratedMatchCount: 7 },
-    { id: 'demo-player-theo', name: 'Theo Martin', label: 'First year', experience: 'casual', rating: 1024, ratedMatchCount: 2 },
-    { id: 'demo-player-nia', name: 'Nia Rivera', label: 'First year', experience: 'beginner', rating: 1000, ratedMatchCount: 0 },
-    { id: 'demo-player-owen', name: 'Owen Reid', label: null, experience: 'casual', rating: 1055, ratedMatchCount: 4 },
-    { id: 'demo-player-samira', name: 'Samira Ali', label: 'Club', experience: 'club', rating: 1230, ratedMatchCount: 6 },
-    { id: 'demo-player-miles', name: 'Miles Carter', label: null, experience: 'unknown', rating: 1000, ratedMatchCount: 0 },
-    { id: 'demo-player-jules', name: 'Jules Kim', label: 'Varsity', experience: 'varsity', rating: 1331, ratedMatchCount: 14 },
+  const names = [
+    'Avery Chen', 'Maya Patel', 'Jordan Brooks', 'Lina Okafor', 'Theo Martin',
+    'Nia Rivera', 'Owen Reid', 'Samira Ali', 'Miles Carter', 'Jules Kim',
+    'Alex Nguyen', 'Priya Shah', 'Noah Wilson', 'Emma Park', 'Eli Thompson',
+    'Zara Ahmed', 'Leo Garcia', 'Sofia Rossi', 'Kai Williams',
   ];
-  const players: Player[] = people.map((player) => ({
-    ...player,
+  const players: Player[] = names.map((name, index) => ({
+    id: `demo-player-${index + 1}`,
+    name,
+    label: null,
+    experience: 'unknown',
+    // Equal Elo baselines are only used once results exist; these players are unrated.
+    rating: 1000,
+    ratedMatchCount: 0,
     archived: false,
     createdAt: now,
     updatedAt: now,
@@ -100,7 +101,7 @@ function seedDemoState(): DemoState {
   const startsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const tournament: Tournament = {
     id: tournamentId,
-    name: 'Varsity Autumn Open',
+    name: '19-player practice tournament',
     startsAt,
     bookingMinutes: 240,
     entryFeeCents: 1000,
@@ -120,7 +121,7 @@ function seedDemoState(): DemoState {
     createdAt: now,
     updatedAt: now,
   };
-  const entries: Entry[] = players.slice(0, 8).map((player, index) => ({
+  const entries: Entry[] = players.map((player, index) => ({
     id: `demo-entry-${index + 1}`,
     tournamentId,
     playerId: player.id,
