@@ -159,7 +159,13 @@ export function loadDemoState(): DemoState {
     if (stored) {
       const parsed: unknown = JSON.parse(stored);
       if (isDemoState(parsed)) {
-        if (recoverGroupAssignments(parsed)) saveDemoState(parsed);
+        let recovered = recoverGroupAssignments(parsed);
+        for (const tournament of parsed.tournaments) {
+          if (tournament.state === 'playoffs') {
+            recovered = autoAdvanceDemoByes(parsed, tournament.id) || recovered;
+          }
+        }
+        if (recovered) saveDemoState(parsed);
         return parsed;
       }
     }
@@ -746,8 +752,9 @@ function resetDependentMatches(matches: readonly DemoMatch[], matchKey: string):
   }
 }
 
-export function autoAdvanceDemoByes(state: DemoState, eventId: Id): void {
+export function autoAdvanceDemoByes(state: DemoState, eventId: Id): boolean {
   const matches = state.matches.filter((match) => match.eventId === eventId && match.stage === 'playoffs');
+  let updated = false;
   let changed = true;
   while (changed) {
     changed = false;
@@ -755,6 +762,15 @@ export function autoAdvanceDemoByes(state: DemoState, eventId: Id): void {
       if (match.state !== 'pending') continue;
       const resolved = resolvedDemoMatch(match, matches);
       if (!resolved.resolved) continue;
+      const participantsChanged = match.entryAId !== resolved.entryAId || match.entryBId !== resolved.entryBId;
+      if (participantsChanged) {
+        match.entryAId = resolved.entryAId;
+        match.entryBId = resolved.entryBId;
+        match.version += 1;
+        match.updatedAt = nowIso();
+        changed = true;
+        updated = true;
+      }
       const hasVoidFeeder = [match.a, match.b].some((slot) => {
         if (slot.kind !== 'winner') return false;
         const feeder = matches.find((candidate) => candidate.matchKey === slot.matchKey);
@@ -764,16 +780,18 @@ export function autoAdvanceDemoByes(state: DemoState, eventId: Id): void {
       const hasTrueBye = (match.a.kind === 'empty' && resolved.entryBId !== null)
         || (match.b.kind === 'empty' && resolved.entryAId !== null);
       if (!hasTrueBye) continue;
-      match.entryAId = resolved.entryAId;
-      match.entryBId = resolved.entryBId;
       match.state = 'bye';
       match.kind = 'bye';
       match.winnerEntryId = resolved.entryAId ?? resolved.entryBId;
-      match.updatedAt = nowIso();
-      match.version += 1;
+      if (!participantsChanged) {
+        match.updatedAt = nowIso();
+        match.version += 1;
+      }
       changed = true;
+      updated = true;
     }
   }
+  return updated;
 }
 
 export function startDemoMatch(
