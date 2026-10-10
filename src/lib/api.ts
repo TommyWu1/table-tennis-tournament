@@ -61,6 +61,7 @@ function normalizeError(error: unknown): MutationResult<never> {
       : 'The save could not be completed.';
   const lower = message.toLowerCase();
   const code = lower.startsWith('forbidden:') || lower.includes('permission denied') || lower.includes('not provisioned')
+    || lower.includes('row-level security')
     ? 'forbidden'
     : lower.startsWith('conflict:') || lower.includes('duplicate key') || lower.includes('serialization failure')
       ? 'conflict'
@@ -119,21 +120,25 @@ export async function listPlayers(): Promise<PlayerRow[]> {
   return data ?? [];
 }
 
-export async function createPlayer(input: PlayerInput): Promise<PlayerRow> {
-  const { data, error } = await getSupabase().from('players').insert(input).select('*').single();
-  throwIfError(error);
-  if (!data) throw new Error('Player insert returned no row.');
-  return data;
+export function createPlayer(input: PlayerInput): Promise<MutationResult<PlayerRow>> {
+  return mutation(async () => {
+    const { data, error } = await getSupabase().from('players').insert(input).select('*').single();
+    if (error) throw error;
+    if (!data) throw new Error('Player insert returned no row.');
+    return data;
+  });
 }
 
-export async function updatePlayer(id: string, patch: PlayerPatch): Promise<PlayerRow> {
-  const { data, error } = await getSupabase().from('players').update(patch).eq('id', id).select('*').single();
-  throwIfError(error);
-  if (!data) throw new Error('Player update returned no row.');
-  return data;
+export function updatePlayer(id: string, patch: PlayerPatch): Promise<MutationResult<PlayerRow>> {
+  return mutation(async () => {
+    const { data, error } = await getSupabase().from('players').update(patch).eq('id', id).select('*').single();
+    if (error) throw error;
+    if (!data) throw new Error('Player update returned no row.');
+    return data;
+  });
 }
 
-export async function archivePlayer(id: string): Promise<PlayerRow> {
+export function archivePlayer(id: string): Promise<MutationResult<PlayerRow>> {
   return updatePlayer(id, { archived: true });
 }
 
@@ -143,18 +148,22 @@ export async function listTournaments(): Promise<TournamentRow[]> {
   return data ?? [];
 }
 
-export async function createTournament(input: TournamentInput): Promise<TournamentRow> {
-  const { data, error } = await getSupabase().from('tournaments').insert(input).select('*').single();
-  throwIfError(error);
-  if (!data) throw new Error('Tournament insert returned no row.');
-  return data;
+export function createTournament(input: TournamentInput): Promise<MutationResult<TournamentRow>> {
+  return mutation(async () => {
+    const { data, error } = await getSupabase().from('tournaments').insert(input).select('*').single();
+    if (error) throw error;
+    if (!data) throw new Error('Tournament insert returned no row.');
+    return data;
+  });
 }
 
-export async function updateTournament(id: string, patch: TournamentPatch): Promise<TournamentRow> {
-  const { data, error } = await getSupabase().from('tournaments').update(patch).eq('id', id).select('*').single();
-  throwIfError(error);
-  if (!data) throw new Error('Tournament update returned no row.');
-  return data;
+export function updateTournament(id: string, patch: TournamentPatch): Promise<MutationResult<TournamentRow>> {
+  return mutation(async () => {
+    const { data, error } = await getSupabase().from('tournaments').update(patch).eq('id', id).select('*').single();
+    if (error) throw error;
+    if (!data) throw new Error('Tournament update returned no row.');
+    return data;
+  });
 }
 
 export async function listEntries(eventId: string): Promise<EntryRow[]> {
@@ -163,23 +172,29 @@ export async function listEntries(eventId: string): Promise<EntryRow[]> {
   return data ?? [];
 }
 
-export async function addEntry(input: EntryInput): Promise<EntryRow> {
-  const { data, error } = await getSupabase().from('entries').insert(input).select('*').single();
-  throwIfError(error);
-  if (!data) throw new Error('Entry insert returned no row.');
-  return data;
+export function addEntry(input: EntryInput): Promise<MutationResult<EntryRow>> {
+  return mutation(async () => {
+    const { data, error } = await getSupabase().from('entries').insert(input).select('*').single();
+    if (error) throw error;
+    if (!data) throw new Error('Entry insert returned no row.');
+    return data;
+  });
 }
 
-export async function updateEntry(id: string, patch: EntryPatch): Promise<EntryRow> {
-  const { data, error } = await getSupabase().from('entries').update(patch).eq('id', id).select('*').single();
-  throwIfError(error);
-  if (!data) throw new Error('Entry update returned no row.');
-  return data;
+export function updateEntry(id: string, patch: EntryPatch): Promise<MutationResult<EntryRow>> {
+  return mutation(async () => {
+    const { data, error } = await getSupabase().from('entries').update(patch).eq('id', id).select('*').single();
+    if (error) throw error;
+    if (!data) throw new Error('Entry update returned no row.');
+    return data;
+  });
 }
 
-export async function removeEntry(id: string): Promise<void> {
-  const { error } = await getSupabase().from('entries').delete().eq('id', id);
-  throwIfError(error);
+export function removeEntry(id: string): Promise<MutationResult<void>> {
+  return mutation(async () => {
+    const { error } = await getSupabase().from('entries').delete().eq('id', id);
+    if (error) throw error;
+  });
 }
 
 export function submitScore(input: ScoreInput): Promise<MutationResult<ScoreboardMatch>> {
