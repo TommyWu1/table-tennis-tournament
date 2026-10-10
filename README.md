@@ -2,6 +2,8 @@
 
 A small web app for running table tennis tournaments at clubs and university teams. Manage the event from a laptop and let scorekeepers enter results from their phones.
 
+[Try the 19-player practice tournament](https://table-tennis-tournament-phi.vercel.app/?demo=1). Start with check-in and payments, then generate groups and enter scores. Each browser keeps its own practice data; **Reset demo** starts again.
+
 ## Run it
 
 Use Node 24.19 (the version in `.nvmrc`), then:
@@ -32,6 +34,8 @@ The default setup is 20 players, three tables, a four-hour booking and a $10 CAD
 Follow [Supabase setup](supabase/README.md), create organizer and scorekeeper accounts, and copy `.env.example` to `.env.local` with your project URL and publishable key. Admins manage events and payments; scorekeepers see the active scoreboard and enter played results.
 
 For Vercel, use the Vite preset (`npm run build`, output `dist`) and add the same two environment variables. Shared login and device syncing require a configured Supabase project; the included local database smoke checks use a test-only Auth shim.
+
+The app is deployed as `table-tennis-tournament` on Vercel. To redeploy from an authenticated, linked checkout, run `vercel deploy --prod`. Automatic deployments require connecting this GitHub repository in the Vercel project's Git settings.
 
 ## Development
 
