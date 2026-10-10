@@ -64,6 +64,6 @@ npm test
 npm run build
 ```
 
-See [requirements](docs/requirements.md), the [build plan](docs/implementation-plan.md), and [contribution guide](CONTRIBUTING.md). Swiss tournaments and online registration are later additions.
+Start with [next steps](NEXT_STEPS.md) when returning to the project. See also [requirements](docs/requirements.md), the [build plan](docs/implementation-plan.md), and [contribution guide](CONTRIBUTING.md). Swiss tournaments and online registration are later additions.
 
 For bugs, feature ideas, or questions about using this at your club, [open an issue](https://github.com/TommyWu1/table-tennis-tournament/issues) or contact [Tommy Wu](https://github.com/TommyWu1).
