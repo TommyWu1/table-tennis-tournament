@@ -158,7 +158,10 @@ export function loadDemoState(): DemoState {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed: unknown = JSON.parse(stored);
-      if (isDemoState(parsed)) return parsed;
+      if (isDemoState(parsed)) {
+        if (recoverGroupAssignments(parsed)) saveDemoState(parsed);
+        return parsed;
+      }
     }
   } catch {
     // A damaged local demo snapshot starts clean on the next save.
@@ -166,6 +169,28 @@ export function loadDemoState(): DemoState {
   const initial = seedDemoState();
   saveDemoState(initial);
   return initial;
+}
+
+function recoverGroupAssignments(state: DemoState): boolean {
+  let recovered = false;
+  for (const match of state.matches) {
+    if (match.stage !== 'groups' || match.groupIndex === null) continue;
+    const fixtureEntryIds = [
+      match.entryAId,
+      match.entryBId,
+      match.a.kind === 'entry' ? match.a.entryId : null,
+      match.b.kind === 'entry' ? match.b.entryId : null,
+    ];
+    for (const entryId of fixtureEntryIds) {
+      if (!entryId) continue;
+      const entry = state.entries.find((candidate) => candidate.id === entryId);
+      if (entry?.groupIndex === null) {
+        entry.groupIndex = match.groupIndex;
+        recovered = true;
+      }
+    }
+  }
+  return recovered;
 }
 
 export function saveDemoState(state: DemoState): void {
@@ -279,11 +304,16 @@ export function updateDemoTournament(
 ): MutationResult<Tournament> {
   const tournament = getTournament(state, eventId);
   if (!tournament) return { ok: false, code: 'invalid', message: 'Event not found.' };
-  if (tournament.state !== 'setup' && (
-    'name' in patch || 'startsAt' in patch || 'bookingMinutes' in patch
-    || 'registrationCap' in patch || 'tableCount' in patch || 'groupBestOf' in patch
-  )) {
-    return { ok: false, code: 'blocked', message: 'Event setup is locked after groups begin.' };
+  if (tournament.state === 'finished' || tournament.state === 'cancelled') {
+    return { ok: false, code: 'blocked', message: 'This event is read-only.' };
+  }
+  if (tournament.state === 'groups') {
+    const groupStageFields = new Set(['playoffBestOf', 'finalBestOf', 'lotOrders']);
+    if (Object.keys(patch).some((field) => !groupStageFields.has(field))) {
+      return { ok: false, code: 'blocked', message: 'Only playoff settings and group lots can change after groups begin.' };
+    }
+  } else if (tournament.state !== 'setup') {
+    return { ok: false, code: 'blocked', message: 'Event settings are locked once playoffs begin.' };
   }
   Object.assign(tournament, patch);
   bumpTournament(state, eventId);
@@ -350,16 +380,36 @@ export function updateDemoEntry(
   if (!tournament || tournament.state === 'finished' || tournament.state === 'cancelled') {
     return { ok: false, code: 'blocked', message: 'This event is read-only.' };
   }
-  if (tournament.state !== 'setup' && ('checkedIn' in patch || 'registrationStatus' in patch)) {
-    return { ok: false, code: 'blocked', message: 'Attendance changes are locked after groups start. You can still record a withdrawal.' };
+  if (tournament.state !== 'setup') {
+    const statusChangeIsWithdrawal = !('registrationStatus' in patch) || patch.registrationStatus === 'withdrawn';
+    const checkInChangeIsWithdrawal = !('checkedIn' in patch)
+      || (patch.checkedIn === false && patch.registrationStatus === 'withdrawn');
+    if (!statusChangeIsWithdrawal || !checkInChangeIsWithdrawal) {
+      return { ok: false, code: 'blocked', message: 'Attendance changes are locked after groups start. Only withdrawals are allowed.' };
+    }
+    if (patch.registrationStatus === 'withdrawn' && !('checkedIn' in patch)) {
+      patch = { ...patch, checkedIn: false };
+    }
   }
   if (patch.registrationStatus === 'waitlisted' && entry.registrationStatus !== 'waitlisted') {
     patch = { ...patch, checkedIn: false };
   }
+  const paid = patch.paid ?? entry.paid;
+  const amountPaidCents = patch.amountPaidCents ?? entry.amountPaidCents;
+  const discountCents = patch.discountCents ?? entry.discountCents;
+  const paymentMethod = patch.paid === false
+    ? null
+    : ('paymentMethod' in patch ? patch.paymentMethod : entry.paymentMethod);
+  if (!Number.isInteger(amountPaidCents) || amountPaidCents < 0) {
+    return { ok: false, code: 'invalid', message: 'Payment amount must be a non-negative whole number of cents.' };
+  }
+  if (!Number.isInteger(discountCents) || discountCents < 0 || discountCents > entry.baseFeeCents) {
+    return { ok: false, code: 'invalid', message: 'Discount must be between $0 and the entry fee.' };
+  }
   if (patch.paid === false) {
     patch = { ...patch, paymentMethod: null, amountPaidCents: 0 };
   }
-  if (patch.paid === true && patch.paymentMethod === null && (patch.amountPaidCents ?? entry.amountPaidCents) > 0) {
+  if (paid && paymentMethod === null && amountPaidCents > 0) {
     return { ok: false, code: 'invalid', message: 'Choose cash or card for a payment above $0.' };
   }
   Object.assign(entry, patch, { updatedAt: nowIso() });
@@ -453,8 +503,11 @@ export function startDemoGroups(
   state.matches = state.matches.filter((match) => match.eventId !== eventId);
   for (const entry of entrants) {
     const group = plans.find((plan) => plan.entryIds.includes(entry.id));
-    entry.groupIndex = group?.groupIndex ?? null;
-    entry.updatedAt = nowIso();
+    const canonicalEntry = state.entries.find((candidate) => candidate.id === entry.id);
+    if (canonicalEntry) {
+      canonicalEntry.groupIndex = group?.groupIndex ?? null;
+      canonicalEntry.updatedAt = nowIso();
+    }
   }
   for (const group of plans) {
     const fixtures = roundRobin(group.entryIds);
@@ -462,7 +515,7 @@ export function startDemoGroups(
       state.matches.push({
         id: id('demo-match'),
         eventId,
-        matchKey: `group-${group.groupIndex + 1}-r${fixture.round}-m${fixture.sequence}`,
+        matchKey: `group-${group.groupIndex}-r${fixture.round}-m${fixture.sequence}`,
         stage: 'groups',
         division: null,
         groupIndex: group.groupIndex,
@@ -493,7 +546,7 @@ export function startDemoGroups(
 
 export function groupEntryIds(state: DemoState, eventId: Id, groupIndex: number): Id[] {
   return state.entries
-    .filter((entry) => entry.tournamentId === eventId && entry.groupIndex === groupIndex && entry.registrationStatus !== 'withdrawn')
+    .filter((entry) => entry.tournamentId === eventId && entry.groupIndex === groupIndex)
     .map((entry) => entry.id);
 }
 
@@ -539,7 +592,7 @@ export function groupsReadyForPlayoffs(state: DemoState, eventId: Id): MutationR
   for (const groupIndex of groupNumbers) {
     const group = groupStandings(state, eventId, groupIndex);
     if (group.some((standing) => standing.rank === null)) {
-      return { ok: false, code: 'blocked', message: `Group ${groupIndex + 1} has a tie that needs a recorded draw of lots.` };
+      return { ok: false, code: 'blocked', message: `Group ${groupIndex} has a tie that needs a recorded draw of lots.` };
     }
     standings[groupIndex] = group;
   }
@@ -559,7 +612,7 @@ function appendBracket(
 ): void {
   if (ordered.length < 2) return;
   const bestOf = tournament.playoffBestOf;
-  const finalBestOf = tournament.finalBestOf;
+  const finalBestOf = division === 'championship' ? tournament.finalBestOf : bestOf;
   const plan: PlannedMatch[] = buildBracket(ordered.map((entry) => entry.entryId), bestOf, finalBestOf);
   const prefix = division;
   for (const match of plan) {
@@ -609,13 +662,15 @@ export function createDemoPlayoffs(
   const consolation: QualifiedEntry[] = [];
   for (const [groupIndexText, standings] of Object.entries(ready.value.standings)) {
     const groupIndex = Number(groupIndexText);
-    for (const standing of standings) {
+    const eligibleStandings = standings.filter((standing) =>
+      standing.rank !== null && entrants.some((entry) => entry.id === standing.entryId));
+    eligibleStandings.forEach((standing, index) => {
       const entry = entrants.find(({ id: entryId }) => entryId === standing.entryId);
-      if (!entry || standing.rank === null) continue;
+      if (!entry || standing.rank === null) return;
       const qualified = { entryId: entry.id, groupIndex, place: standing.rank };
-      if (standing.rank <= tournament.qualifiersPerGroup) championship.push(qualified);
+      if (index < tournament.qualifiersPerGroup) championship.push(qualified);
       else consolation.push(qualified);
-    }
+    });
   }
   state.matches = state.matches.filter((match) => !(match.eventId === eventId && match.stage === 'playoffs'));
   const orderedChampionship = orderQualifiers(championship, seed);
@@ -648,6 +703,49 @@ export function resolvedDemoMatch(
   return { resolved: a.resolved && b.resolved, entryAId: a.entryId, entryBId: b.entryId };
 }
 
+function matchWriteLock(state: DemoState, match: DemoMatch): string | null {
+  const tournament = getTournament(state, match.eventId);
+  if (!tournament || tournament.state === 'finished' || tournament.state === 'cancelled') {
+    return 'This event is read-only.';
+  }
+  if ((tournament.state === 'groups' && match.stage === 'groups')
+    || (tournament.state === 'playoffs' && match.stage === 'playoffs')) return null;
+  return 'Matches can only be changed during their event stage.';
+}
+
+function getDependentMatches(matches: readonly DemoMatch[], matchKey: string): DemoMatch[] {
+  const descendants: DemoMatch[] = [];
+  const visitedKeys = new Set<string>();
+  const visit = (key: string) => {
+    if (visitedKeys.has(key)) return;
+    visitedKeys.add(key);
+    for (const match of matches) {
+      if (match.stage !== 'playoffs'
+        || !((match.a.kind === 'winner' && match.a.matchKey === key)
+          || (match.b.kind === 'winner' && match.b.matchKey === key))) continue;
+      descendants.push(match);
+      visit(match.matchKey);
+    }
+  };
+  visit(matchKey);
+  return descendants;
+}
+
+function resetDependentMatches(matches: readonly DemoMatch[], matchKey: string): void {
+  for (const dependent of getDependentMatches(matches, matchKey)) {
+    dependent.state = 'pending';
+    dependent.kind = null;
+    dependent.games = [];
+    dependent.winnerEntryId = null;
+    dependent.reason = null;
+    dependent.tableNumber = null;
+    dependent.entryAId = dependent.a.kind === 'entry' ? dependent.a.entryId : null;
+    dependent.entryBId = dependent.b.kind === 'entry' ? dependent.b.entryId : null;
+    dependent.version += 1;
+    dependent.updatedAt = nowIso();
+  }
+}
+
 export function autoAdvanceDemoByes(state: DemoState, eventId: Id): void {
   const matches = state.matches.filter((match) => match.eventId === eventId && match.stage === 'playoffs');
   let changed = true;
@@ -657,11 +755,19 @@ export function autoAdvanceDemoByes(state: DemoState, eventId: Id): void {
       if (match.state !== 'pending') continue;
       const resolved = resolvedDemoMatch(match, matches);
       if (!resolved.resolved) continue;
-      if (resolved.entryAId && resolved.entryBId) continue;
+      const hasVoidFeeder = [match.a, match.b].some((slot) => {
+        if (slot.kind !== 'winner') return false;
+        const feeder = matches.find((candidate) => candidate.matchKey === slot.matchKey);
+        return feeder?.state === 'void';
+      });
+      if (hasVoidFeeder) continue;
+      const hasTrueBye = (match.a.kind === 'empty' && resolved.entryBId !== null)
+        || (match.b.kind === 'empty' && resolved.entryAId !== null);
+      if (!hasTrueBye) continue;
       match.entryAId = resolved.entryAId;
       match.entryBId = resolved.entryBId;
-      match.state = resolved.entryAId || resolved.entryBId ? 'bye' : 'void';
-      match.kind = resolved.entryAId || resolved.entryBId ? 'bye' : 'void';
+      match.state = 'bye';
+      match.kind = 'bye';
       match.winnerEntryId = resolved.entryAId ?? resolved.entryBId;
       match.updatedAt = nowIso();
       match.version += 1;
@@ -684,9 +790,16 @@ export function startDemoMatch(
   if (!tournament || tableNumber < 1 || tableNumber > tournament.tableCount) {
     return { ok: false, code: 'invalid', message: 'Choose a configured table.' };
   }
-  const resolved = resolvedDemoMatch(match, state.matches);
+  const lock = matchWriteLock(state, match);
+  if (lock) return { ok: false, code: 'blocked', message: lock };
+  const eventMatches = state.matches.filter((candidate) => candidate.eventId === match.eventId);
+  const resolved = resolvedDemoMatch(match, eventMatches);
   if (!resolved.resolved || !resolved.entryAId || !resolved.entryBId) {
     return { ok: false, code: 'blocked', message: 'Both players must be resolved before a table can be assigned.' };
+  }
+  if ([resolved.entryAId, resolved.entryBId].some((entryId) =>
+    getEntry(state, entryId)?.registrationStatus === 'withdrawn')) {
+    return { ok: false, code: 'blocked', message: 'A withdrawn entrant cannot start a match.' };
   }
   const active = state.matches.filter((candidate) =>
     candidate.eventId === match.eventId && candidate.state === 'active');
@@ -707,15 +820,10 @@ export function startDemoMatch(
   return { ok: true, value: match };
 }
 
-function hasStartedDescendant(matches: readonly DemoMatch[], matchKey: string, seen = new Set<string>()): boolean {
-  if (seen.has(matchKey)) return false;
-  seen.add(matchKey);
-  return matches
-    .filter((match) => match.stage === 'playoffs'
-      && ((match.a.kind === 'winner' && match.a.matchKey === matchKey)
-        || (match.b.kind === 'winner' && match.b.matchKey === matchKey)))
-    .some((match) => (match.state === 'active' || match.state === 'completed')
-      || hasStartedDescendant(matches, match.matchKey, seen));
+function hasStartedDescendant(matches: readonly DemoMatch[], matchKey: string): boolean {
+  return getDependentMatches(matches, matchKey).some((match) =>
+    match.state === 'active' || match.state === 'completed'
+    || (match.state === 'void' && match.reason !== null));
 }
 
 export function saveDemoScore(
@@ -728,22 +836,29 @@ export function saveDemoScore(
   const match = state.matches.find((candidate) => candidate.id === matchId);
   if (!match) return { ok: false, code: 'invalid', message: 'Match not found.' };
   if (match.version !== expectedVersion) return { ok: false, code: 'conflict', message: 'A newer result is saved. Reopen the match before editing.' };
+  const lock = matchWriteLock(state, match);
+  if (lock) return { ok: false, code: 'blocked', message: lock };
   if (match.state === 'completed' && !correcting) return { ok: false, code: 'blocked', message: 'This match already has a saved result.' };
   if (match.state !== 'pending' && match.state !== 'active' && match.state !== 'completed') {
     return { ok: false, code: 'blocked', message: 'This match cannot accept a played score.' };
   }
   const validation = validateSeries(match.bestOf, games);
   if (!validation.ok) return { ok: false, code: 'invalid', message: validation.message };
-  const resolved = resolvedDemoMatch(match, state.matches);
+  const eventMatches = state.matches.filter((candidate) => candidate.eventId === match.eventId);
+  const resolved = resolvedDemoMatch(match, eventMatches);
   if (!resolved.resolved || !resolved.entryAId || !resolved.entryBId) {
     return { ok: false, code: 'blocked', message: 'Both match participants must be resolved.' };
   }
+  if ([resolved.entryAId, resolved.entryBId].some((entryId) =>
+    getEntry(state, entryId)?.registrationStatus === 'withdrawn')) {
+    return { ok: false, code: 'blocked', message: 'A withdrawn entrant cannot receive a played score.' };
+  }
   const nextWinner = validation.winner === 'a' ? resolved.entryAId : resolved.entryBId;
   if (correcting && match.winnerEntryId !== nextWinner) {
-    const eventMatches = state.matches.filter((candidate) => candidate.eventId === match.eventId);
     if (hasStartedDescendant(eventMatches, match.matchKey)) {
       return { ok: false, code: 'blocked', message: 'A dependent playoff match has started or has a result. Clear downstream matches in reverse order first.' };
     }
+    resetDependentMatches(eventMatches, match.matchKey);
   }
   match.entryAId = resolved.entryAId;
   match.entryBId = resolved.entryBId;
@@ -771,22 +886,32 @@ export function saveDemoUnplayedResult(
   const match = state.matches.find((candidate) => candidate.id === matchId);
   if (!match) return { ok: false, code: 'invalid', message: 'Match not found.' };
   if (match.version !== expectedVersion) return { ok: false, code: 'conflict', message: 'This match changed. Refresh and reopen it.' };
+  const lock = matchWriteLock(state, match);
+  if (lock) return { ok: false, code: 'blocked', message: lock };
   if (match.stage !== 'groups' && match.stage !== 'playoffs') return { ok: false, code: 'invalid', message: 'Match stage is invalid.' };
   if (match.state !== 'pending' && match.state !== 'active') return { ok: false, code: 'blocked', message: 'Only a ready or active match can be resolved this way.' };
-  const resolved = resolvedDemoMatch(match, state.matches);
-  if (!resolved.resolved || !resolved.entryAId || !resolved.entryBId) {
-    return { ok: false, code: 'blocked', message: 'Both participants must be resolved before reporting a walkover or void.' };
+  const eventMatches = state.matches.filter((candidate) => candidate.eventId === match.eventId);
+  const resolved = resolvedDemoMatch(match, eventMatches);
+  if (!resolved.resolved) return { ok: false, code: 'blocked', message: 'Resolve the feeder matches before resolving this match.' };
+  const trimmedReason = reason.trim();
+  if (!trimmedReason || trimmedReason.length > 240) {
+    return { ok: false, code: 'invalid', message: 'Add a short reason of no more than 240 characters.' };
   }
-  if (!reason.trim()) return { ok: false, code: 'invalid', message: 'Add a short reason.' };
-  if (kind === 'walkover' && winnerEntryId !== resolved.entryAId && winnerEntryId !== resolved.entryBId) {
-    return { ok: false, code: 'invalid', message: 'Select the walkover winner.' };
+  const availableEntries = [resolved.entryAId, resolved.entryBId]
+    .filter((entryId): entryId is Id => entryId !== null)
+    .filter((entryId) => getEntry(state, entryId)?.registrationStatus !== 'withdrawn');
+  if (kind === 'walkover' && (!winnerEntryId || !availableEntries.includes(winnerEntryId))) {
+    return { ok: false, code: 'invalid', message: 'Select a resolved, non-withdrawn walkover winner.' };
+  }
+  if (kind === 'void' && availableEntries.length > 0) {
+    return { ok: false, code: 'invalid', message: 'Use a walkover when an available entrant can advance.' };
   }
   match.entryAId = resolved.entryAId;
   match.entryBId = resolved.entryBId;
   match.kind = kind;
   match.winnerEntryId = kind === 'walkover' ? winnerEntryId : null;
   match.games = [];
-  match.reason = reason.trim();
+  match.reason = trimmedReason;
   match.state = kind === 'walkover' ? 'completed' : 'void';
   match.tableNumber = null;
   match.version += 1;
@@ -804,10 +929,14 @@ export function clearDemoResult(
   const match = state.matches.find((candidate) => candidate.id === matchId);
   if (!match) return { ok: false, code: 'invalid', message: 'Match not found.' };
   if (match.version !== expectedVersion) return { ok: false, code: 'conflict', message: 'This match changed. Refresh and try again.' };
+  const lock = matchWriteLock(state, match);
+  if (lock) return { ok: false, code: 'blocked', message: lock };
   if (match.state !== 'completed' && match.state !== 'void') return { ok: false, code: 'blocked', message: 'Only a saved result can be cleared.' };
-  if (match.stage === 'playoffs' && hasStartedDescendant(state.matches, match.matchKey)) {
+  const eventMatches = state.matches.filter((candidate) => candidate.eventId === match.eventId);
+  if (match.stage === 'playoffs' && hasStartedDescendant(eventMatches, match.matchKey)) {
     return { ok: false, code: 'blocked', message: 'A dependent playoff match has started or has a result. Clear it first.' };
   }
+  if (match.stage === 'playoffs') resetDependentMatches(eventMatches, match.matchKey);
   match.state = 'pending';
   match.kind = null;
   match.games = [];
