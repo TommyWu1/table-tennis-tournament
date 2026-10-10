@@ -1,4 +1,4 @@
-# RallyDesk — Product
+# Table Tennis Tournament Manager — Product
 
 ## Register
 
