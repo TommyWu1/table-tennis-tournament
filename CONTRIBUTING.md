@@ -17,7 +17,7 @@ The first release is groups → knockout, with simple payment records and phone 
 
 Do not mark a plan checkbox complete until the behavior is implemented and checked. Update the relevant documentation if the agreed behavior changes.
 
-There are no application setup commands yet; the current repository contains the build specification. Add working setup instructions with the initial scaffold.
+The app is implemented. Use the setup commands in the [README](README.md), and read [NEXT_STEPS.md](NEXT_STEPS.md) for current build priorities.
 
 ## Questions or interest in using Table Tennis Tournament Manager
 

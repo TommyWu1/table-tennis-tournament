@@ -1,6 +1,6 @@
 # AI Agent Handoff
 
-This file coordinates future implementation. No agents have been dispatched and no application code has been written as part of the planning request.
+This file records the original MVP build plan. The MVP has since been implemented and deployed. Read [NEXT_STEPS.md](../NEXT_STEPS.md) and the [README](../README.md) first for current status and the next build priorities.
 
 ## Read first
 
@@ -51,7 +51,7 @@ Task 5 can develop against agreed adapters while Task 4 finishes, but mocked suc
 - Engine worker owns `src/domain/` files assigned to Task 2 and corresponding tests.
 - UI worker owns only the assigned pages/components; propose shared changes to the lead.
 - Do not have two agents modify a migration, lockfile or shared interface simultaneously.
-- Use a suitable branch/worktree per concurrent worker, or strictly disjoint files if the execution environment shares a checkout. The repository is Table Tennis Tournament Manager (`rally-desk`); use the existing Git history rather than reinitializing it.
+- Use a suitable branch/worktree per concurrent worker, or strictly disjoint files if the execution environment shares a checkout. The repository is Table Tennis Tournament Manager (`table-tennis-tournament`); use the existing Git history rather than reinitializing it.
 - No agent adds a new dependency, table, role or feature without first explaining why existing pieces cannot cover it. The lead can resolve ordinary implementation choices without another user approval loop.
 - Never provision accounts, transmit email, purchase hosting, or deploy production just because a task discusses those actions.
 - Report files changed, behavior implemented, commands/tests actually run and remaining limitations. Do not report intentions as completed work.
