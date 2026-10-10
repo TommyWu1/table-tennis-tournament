@@ -6,6 +6,7 @@ import { Results } from './pages/Results';
 import { Roster } from './pages/Roster';
 import { Scorekeeper } from './pages/Scorekeeper';
 import { TournamentSettings } from './pages/TournamentSettings';
+import { LiveTables } from './components/LiveTables';
 import {
   archiveDemoPlayer,
   cancelDemoTournament,
@@ -333,6 +334,10 @@ export default function App() {
     {remoteFailure && <p className="inline-status" role="status">Could not refresh the shared event: {remoteFailure}</p>}
     {notice && <p className="inline-status" role="status">{notice}</p>}
     {section === 'Tournament' && <>
+      <section className="live-summary" aria-labelledby="live-heading">
+        <div className="section-heading"><div><h2 id="live-heading">Live tables</h2><p>{event.name} · table assignments appear when you start a match.</p></div><button type="button" className="button button-secondary" onClick={() => setTournamentTab('Matches')}>Manage matches</button></div>
+        <LiveTables state={state} event={event} />
+      </section>
       <TournamentSettings key={event.id + '-' + event.updatedAt} tournaments={state.tournaments} selected={event} onSelect={(id) => { setSelectedEventId(id); if (remoteMode) void refreshRemote(id); }} onCreate={createEvent} onSave={updateEvent} onCancel={cancelTournament} onFinish={finishTournament} readOnly={false} />
       <nav className="tournament-tabs" aria-label="Tournament sections">{(['Players & payments', 'Matches', 'Groups & bracket'] as const).map((tab) => <button key={tab} type="button" className={tournamentTab === tab ? 'tournament-tab active' : 'tournament-tab'} onClick={() => setTournamentTab(tab)}>{tab}</button>)}</nav>
       {tournamentTab === 'Matches' && <Matches state={state} event={event} onStart={startMatch} onScore={saveScore} onResolve={resolveMatch} onClear={clearResult} />}

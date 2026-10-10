@@ -243,3 +243,18 @@ tbody small, .subcell { display: block; margin-top: 3px; color: var(--muted); fo
 .time-estimate { margin-top: 13px; padding: 11px 13px; display: flex; align-items: center; gap: 25px; border: 1px solid #c8d9ce; border-radius: 9px; background: #f0f7f2; }
 .time-estimate > div span,.time-estimate > div strong { display: block; }.time-estimate > div span { color: var(--muted); font-size: 9px; }.time-estimate > div strong { margin-top: 3px; color: #245b3c; font-size: 14px; }.time-estimate > div strong small { color: var(--muted); font-size: 10px; font-weight: 500; }.time-estimate-status { margin-left: auto; color: var(--green); font-size: 10px; font-weight: 750; }.time-estimate.overrun { border-color: #e5c890; background: #fff8e9; }.time-estimate.overrun > div strong,.time-estimate.overrun .time-estimate-status { color: var(--amber); }
 @media (max-width: 560px) { .time-estimate { align-items: flex-start; flex-wrap: wrap; gap: 12px 18px; }.time-estimate-status { margin-left: 0; flex-basis: 100%; } }
+
+/* The tournament desk keeps occupied tables above check-in and score entry. */
+.live-summary { margin: 24px 0; }
+.live-summary .section-heading { margin-bottom: 14px; }
+.live-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.live-table { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.live-table.is-playing { border-color: var(--green); background: var(--green-soft); }
+.live-table header { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; }
+.live-table h3 { margin: 0; font-size: 17px; }
+.live-table header > span { color: #43544c; font-size: 12px; font-weight: 650; }
+.live-table.is-playing header > span { color: var(--green); }
+.live-opponents { display: flex; flex-direction: column; gap: 3px; margin-top: 14px; font-size: 18px; overflow-wrap: anywhere; }
+.live-opponents > span { color: #43544c; font-size: 12px; }
+.live-table p { margin: 12px 0 0; color: #43544c; font-size: 13px; }
+.live-table small { display: block; margin-top: 6px; color: #43544c; font-size: 12px; }
