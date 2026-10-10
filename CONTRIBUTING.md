@@ -1,6 +1,6 @@
-# Working on RallyDesk
+# Working on Table Tennis Tournament Manager
 
-RallyDesk is a small team project. Keep changes focused on making tournament day easier.
+Table Tennis Tournament Manager is a small team project. Keep changes focused on making tournament day easier.
 
 ## Before starting
 
@@ -19,6 +19,6 @@ Do not mark a plan checkbox complete until the behavior is implemented and check
 
 There are no application setup commands yet; the current repository contains the build specification. Add working setup instructions with the initial scaffold.
 
-## Questions or interest in using RallyDesk
+## Questions or interest in using Table Tennis Tournament Manager
 
-[Open an issue](https://github.com/TommyWu1/rally-desk/issues/new). A brief description of your tournament or the problem you ran into is enough to start.
+[Open an issue](https://github.com/TommyWu1/table-tennis-tournament/issues/new). A brief description of your tournament or the problem you ran into is enough to start.
