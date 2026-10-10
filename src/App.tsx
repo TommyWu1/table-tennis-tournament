@@ -44,7 +44,8 @@ import type { Entry, GameScore, GroupPlan, MutationResult, Profile, Tournament }
 
 type Section = 'Tournament' | 'Players' | 'Results';
 type TournamentTab = 'Players & payments' | 'Matches' | 'Groups & bracket';
-const remoteMode = isSupabaseConfigured();
+const demoRequested = new URLSearchParams(window.location.search).get('demo') === '1';
+const remoteMode = isSupabaseConfigured() && !demoRequested;
 const localPhoneView = new URLSearchParams(window.location.search).get('view') === 'scorekeeper';
 const SCORE_DRAFT_PREFIX = 'tttm:score-draft:';
 
@@ -324,11 +325,11 @@ export default function App() {
 
   return <main className="app-shell">
     <header className="app-header">
-      <a className="product-lockup" href="/" aria-label="Table Tennis Tournament Manager home"><span className="brand-mark" aria-hidden="true">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>{remoteMode ? profile?.displayName : 'Varsity tournament desk'}</small></span></a>
+      <a className="product-lockup" href={demoRequested ? '/?demo=1' : '/'} aria-label="Table Tennis Tournament Manager home"><span className="brand-mark" aria-hidden="true">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>{remoteMode ? profile?.displayName : 'Varsity tournament desk'}</small></span></a>
       <nav className="primary-nav" aria-label="Main navigation">{(['Tournament', 'Players', 'Results'] as const).map((item) => <button type="button" key={item} className={section === item ? 'nav-link active' : 'nav-link'} onClick={() => setSection(item)}>{item}</button>)}</nav>
       <div className="header-actions">{remoteMode ? <><span className="shared-badge demo-badge"><i aria-hidden="true" />SUPABASE SHARED</span><button className="text-button reset-link" type="button" onClick={() => void signOutUser()}>Sign out</button></> : <><span className="demo-badge"><i aria-hidden="true" />LOCAL DEMO</span><button className="text-button reset-link" type="button" onClick={() => { if (window.confirm('Reset all local demo changes and restore the sample event?')) void resetLocalDemo(); }}>Reset demo</button></>}</div>
     </header>
-    {!remoteMode && <div className="local-demo-note"><strong>LOCAL DEMO</strong><span>Changes are saved in this browser only. Configure Supabase to share events with phones.</span>{localPhoneView && <a href="/" aria-label="Open organizer view">Organizer view</a>}</div>}
+    {!remoteMode && <div className="local-demo-note"><strong>PRACTICE DEMO</strong><span>19 new, unrated players. Check them in, record payments, then start groups. Changes stay in this browser.</span>{isSupabaseConfigured() && <a href="/">Shared workspace</a>}{localPhoneView && <a href="/?demo=1" aria-label="Open organizer view">Organizer view</a>}</div>}
     {remoteFailure && <p className="inline-status" role="status">Could not refresh the shared event: {remoteFailure}</p>}
     {notice && <p className="inline-status" role="status">{notice}</p>}
     {section === 'Tournament' && <>
@@ -379,7 +380,7 @@ function SignInScreen({ onSignIn, error }: { onSignIn: (email: string, password:
     try { setMessage(await onSignIn(email, password)); } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not sign in.'); }
     finally { setBusy(false); }
   }
-  return <main className="auth-shell"><header className="product-lockup"><span className="brand-mark">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>Shared tournament desk</small></span></header><form className="login-panel" onSubmit={(event) => void submit(event)}><p className="eyebrow">Team account</p><h1>Sign in</h1><p className="setup-copy">Use the email and password created for your organizer or scorekeeper account.</p><label><span>Email</span><input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.currentTarget.value)} /></label><label><span>Password</span><input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.currentTarget.value)} /></label>{message && <p className="field-error" role="alert">{message}</p>}<button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button><p className="table-note">Accounts are provisioned by the tournament administrator. Public sign-up is disabled.</p></form></main>;
+  return <main className="auth-shell"><header className="product-lockup"><span className="brand-mark">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>Shared tournament desk</small></span></header><form className="login-panel" onSubmit={(event) => void submit(event)}><p className="eyebrow">Team account</p><h1>Sign in</h1><p className="setup-copy">Use the email and password created for your organizer or scorekeeper account.</p><label><span>Email</span><input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.currentTarget.value)} /></label><label><span>Password</span><input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.currentTarget.value)} /></label>{message && <p className="field-error" role="alert">{message}</p>}<button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button><p className="table-note">Accounts are provisioned by the tournament administrator. Public sign-up is disabled.</p><a className="button button-secondary" href="/?demo=1">Try the 19-player practice demo</a></form></main>;
 }
 
 function FirstEvent({ onCreate, onSignOut, profile }: { onCreate: (input: { name: string; startsAt: string }) => Promise<string | null>; onSignOut: () => void; profile: Profile | null }) {
