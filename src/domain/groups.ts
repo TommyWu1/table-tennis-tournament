@@ -96,5 +96,6 @@ export function createGroupDraw(
     round += 1;
   }
 
-  return groups.map((entryIds, groupIndex) => ({ groupIndex, entryIds }));
+  // Persisted group indexes are 1-based (see entries.group_index).
+  return groups.map((entryIds, groupIndex) => ({ groupIndex: groupIndex + 1, entryIds }));
 }

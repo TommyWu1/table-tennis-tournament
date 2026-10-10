@@ -31,6 +31,7 @@ describe('tournament engine smoke cases', () => {
     expect(fixtureCount).toBe(30);
     expect(repeated).toEqual(draw);
     expect(repeatedRandomDraw).toEqual(randomDraw);
+    expect(draw.map(({ groupIndex }) => groupIndex)).toEqual([1, 2, 3, 4, 5]);
   });
 
   test('rejects illegal deuce and games entered after the series is clinched', () => {
