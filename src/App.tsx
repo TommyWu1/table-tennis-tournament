@@ -6,6 +6,8 @@ import { Results } from './pages/Results';
 import { Roster } from './pages/Roster';
 import { Scorekeeper } from './pages/Scorekeeper';
 import { TournamentSettings } from './pages/TournamentSettings';
+import { LiveTables } from './components/LiveTables';
+import { Display } from './pages/Display';
 import {
   archiveDemoPlayer,
   cancelDemoTournament,
@@ -27,6 +29,7 @@ import {
   updateDemoEntry,
   updateDemoTournament,
   clearDemoResult,
+  DEMO_STORAGE_KEY,
   type DemoMatch,
   type DemoState,
 } from './lib/demo';
@@ -47,6 +50,8 @@ type TournamentTab = 'Players & payments' | 'Matches' | 'Groups & bracket';
 const demoRequested = new URLSearchParams(window.location.search).get('demo') === '1';
 const remoteMode = isSupabaseConfigured() && !demoRequested;
 const localPhoneView = new URLSearchParams(window.location.search).get('view') === 'scorekeeper';
+const displayRequested = new URLSearchParams(window.location.search).get('view') === 'display';
+const displayEventId = displayRequested ? new URLSearchParams(window.location.search).get('event') ?? '' : '';
 const SCORE_DRAFT_PREFIX = 'tttm:score-draft:';
 
 function withPlayers(workspace: RemoteWorkspace): RemoteWorkspace {
@@ -60,7 +65,7 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(remoteMode);
   const [remoteFailure, setRemoteFailure] = useState<string | null>(null);
-  const [selectedEventId, setSelectedEventId] = useState('');
+  const [selectedEventId, setSelectedEventId] = useState(displayEventId);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [section, setSection] = useState<Section>('Tournament');
   const [tournamentTab, setTournamentTab] = useState<TournamentTab>(localPhoneView ? 'Matches' : 'Players & payments');
@@ -70,14 +75,15 @@ export default function App() {
   const profileRole = profile?.role;
   const state = remoteMode ? remoteWorkspace : localState;
   const eventId = selectedEventId || state?.tournaments[0]?.id || '';
-  const event = state?.tournaments.find((tournament) => tournament.id === eventId) ?? state?.tournaments[0];
+  const event = state?.tournaments.find((tournament) => tournament.id === eventId) ?? (displayEventId ? undefined : state?.tournaments[0]);
   const entries = state && event ? getEntries(state, event.id) : [];
 
   const refreshRemote = useCallback(async (targetEventId?: string) => {
     if (!remoteMode || refreshLock.current) return;
     refreshLock.current = true;
     try {
-      const workspace = await loadRemoteWorkspace(targetEventId || undefined);
+      const requestedEventId = displayEventId || targetEventId;
+      const workspace = await loadRemoteWorkspace(requestedEventId || undefined);
       if (!workspace) {
         setProfile(null);
         setRemoteWorkspace(null);
@@ -88,7 +94,7 @@ export default function App() {
         setRemoteWorkspace(normalized);
         setRemoteFailure(null);
         if (normalized.scoreboard) setSelectedEventId(normalized.scoreboard.eventId);
-        else if (!targetEventId || !normalized.tournaments.some((item) => item.id === targetEventId)) {
+        else if (!displayEventId && (!targetEventId || !normalized.tournaments.some((item) => item.id === targetEventId))) {
           const preferred = normalized.tournaments.find((item) => item.state === 'groups' || item.state === 'playoffs') ?? normalized.tournaments[0];
           if (preferred) setSelectedEventId(preferred.id);
         }
@@ -118,6 +124,17 @@ export default function App() {
     })();
     return () => { active = false; };
   }, [refreshRemote]);
+
+  useEffect(() => {
+    if (remoteMode) return;
+    const sync = (event: StorageEvent) => {
+      if (event.storageArea === localStorage && (event.key === DEMO_STORAGE_KEY || event.key === null)) setLocalState(loadDemoState());
+    };
+    const refresh = () => setLocalState(loadDemoState());
+    window.addEventListener('storage', sync);
+    window.addEventListener('focus', refresh);
+    return () => { window.removeEventListener('storage', sync); window.removeEventListener('focus', refresh); };
+  }, []);
 
   useEffect(() => {
     if (!remoteMode || !profileId || profileRole === 'scorekeeper' || !selectedEventId) return;
@@ -313,6 +330,7 @@ export default function App() {
 
   if (remoteMode && remoteLoading && !profile) return <LoadingScreen />;
   if (remoteMode && !profile) return <SignInScreen onSignIn={login} error={remoteFailure} />;
+  if (displayRequested && remoteMode && profile?.role === 'scorekeeper') return <main className="display-shell"><h1>Organizer account required</h1><p>Open the projector view from the organizer’s browser. Scorekeeper accounts use the phone score-entry view.</p></main>;
   if (remoteMode && profile?.role === 'scorekeeper') {
     if (remoteFailure && !remoteWorkspace?.scoreboard) return <ConnectionError message={remoteFailure} onRetry={() => void refreshRemote()} />;
     if (!remoteWorkspace?.scoreboard) return <LoadingScreen message="Looking for the active event…" />;
@@ -320,8 +338,13 @@ export default function App() {
   }
   if (remoteMode && remoteFailure && !remoteWorkspace) return <ConnectionError message={remoteFailure} onRetry={() => void refreshRemote()} />;
   if (!state) return <LoadingScreen />;
+  if (displayRequested && !event) return <main className="display-shell"><h1>Tournament unavailable</h1><p>Open the projector view again from the tournament you want to display.</p></main>;
   if (!event && remoteMode) return <FirstEvent onCreate={createEvent} onSignOut={signOutUser} profile={profile} />;
   if (!event) return <main className="app-shell"><p className="field-error">No event is available.</p><button className="button button-primary" type="button" onClick={() => void resetLocalDemo()}>Reset local demo</button></main>;
+  if (displayRequested) return <Display key={event.id + '-' + event.state} state={state} event={event} shared={remoteMode} error={remoteFailure} lastRefreshed={lastRefreshed} />;
+
+  const displayParams = new URLSearchParams({ view: 'display', event: event.id });
+  if (!remoteMode) displayParams.set('demo', '1');
 
   return <main className="app-shell">
     <header className="app-header">
@@ -333,6 +356,10 @@ export default function App() {
     {remoteFailure && <p className="inline-status" role="status">Could not refresh the shared event: {remoteFailure}</p>}
     {notice && <p className="inline-status" role="status">{notice}</p>}
     {section === 'Tournament' && <>
+      <section className="live-summary" aria-labelledby="live-heading">
+        <div className="section-heading"><div><h2 id="live-heading">Live tables</h2><p>{event.name} · table assignments appear when you start a match.</p></div><div className="action-row"><a className="button button-secondary" href={'/?' + displayParams.toString()} target="_blank" rel="noopener noreferrer">Open projector view ↗</a><button type="button" className="button button-secondary" onClick={() => setTournamentTab('Matches')}>Manage matches</button></div></div>
+        <LiveTables state={state} event={event} />
+      </section>
       <TournamentSettings key={event.id + '-' + event.updatedAt} tournaments={state.tournaments} selected={event} onSelect={(id) => { setSelectedEventId(id); if (remoteMode) void refreshRemote(id); }} onCreate={createEvent} onSave={updateEvent} onCancel={cancelTournament} onFinish={finishTournament} readOnly={false} />
       <nav className="tournament-tabs" aria-label="Tournament sections">{(['Players & payments', 'Matches', 'Groups & bracket'] as const).map((tab) => <button key={tab} type="button" className={tournamentTab === tab ? 'tournament-tab active' : 'tournament-tab'} onClick={() => setTournamentTab(tab)}>{tab}</button>)}</nav>
       {tournamentTab === 'Matches' && <Matches state={state} event={event} onStart={startMatch} onScore={saveScore} onResolve={resolveMatch} onClear={clearResult} />}

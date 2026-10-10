@@ -24,6 +24,8 @@ The practice demo is also available at `/?demo=1` when shared login is configure
 - Random or balanced groups that adapt to the checked-in player count.
 - Round-robin fixtures, standings and championship/consolation knockout brackets.
 - Table assignment, game-score entry, winner advancement and result corrections.
+- Live table summary with player names, recorded start times and elapsed minutes.
+- Read-only projector window: live tables, rotating group standings and knockout brackets.
 - Simple Elo ratings applied when the organizer finishes an event.
 - Results, CSV/JSON exports and printable match sheets.
 
@@ -38,6 +40,18 @@ The [live shared workspace](https://table-tennis-tournament-phi.vercel.app/) is 
 For Vercel, use the Vite preset (`npm run build`, output `dist`) and add the same two environment variables. Shared login and device syncing require a configured Supabase project; the included local database smoke checks use a test-only Auth shim.
 
 The app is deployed as `table-tennis-tournament` on Vercel, with this repository connected and `main` selected as the production branch. To redeploy manually from an authenticated, linked checkout, run `vercel deploy --prod`.
+
+## Use a projector while keeping your laptop free
+
+From the tournament dashboard, click **Open projector view**. Move that tab into its own Chrome window and drag the window onto the projector. Use the display’s **Toggle fullscreen** button if desired. Keep the organizer window on your laptop for check-in, table assignments and scores.
+
+On a Mac, connect the projector, then open **System Settings → Displays**, select the projector, and choose **Extended display** under **Use as**. Keep the MacBook as your main display. [Apple’s extended-display instructions](https://support.apple.com/en-gb/guide/mac-help/mchlb5f905a1/mac) explain the display setup. Keep the laptop plugged in and awake during the event.
+
+The projector stays on the event you opened, even if you select another event on the desk. It shows live table assignments above group standings, then switches to the championship/consolation brackets when playoffs start. Large groups and bracket sections rotate every 20 seconds; pause rotation or use the arrows to hold a screen. Names, results, byes and advancing winners are visible; payment records and editing controls are omitted.
+
+In practice mode, both windows must use the same browser profile and site address: updates follow browser storage immediately. In shared mode, open the display from a browser signed in as an organizer; it refreshes from Supabase every five seconds while visible, including scores entered by phone scorekeepers. This is an organizer’s read-only display, not an anonymous public scoreboard link. A connection warning identifies a stale shared view while the app reconnects.
+
+A match’s start time is when the organizer clicks **Start match**, not a promised scheduled time. Elapsed minutes update automatically; saving a result clears its table. Entering a result without starting the match does not create a start-time record.
 
 ## Development
 
