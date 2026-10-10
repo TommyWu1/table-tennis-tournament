@@ -86,7 +86,7 @@ export function orderQualifiers(entries: readonly QualifiedEntry[], seed: Random
     if (!Number.isInteger(entry.place) || entry.place < 1) throw new RangeError('Finishing place must be a positive integer.');
     tiers.set(entry.place, [...(tiers.get(entry.place) ?? []), entry]);
   }
-  let ordered = [...tiers.entries()]
+  const ordered = [...tiers.entries()]
     .sort(([placeA], [placeB]) => placeA - placeB)
     .flatMap(([place, tier]) => seededShuffle(tier, `${String(seed)}:place:${place}`));
   const pairs = seedPairs(ordered.length);
