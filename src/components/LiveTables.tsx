@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { getEntries, resolvedDemoMatch, type DemoMatch, type DemoState } from '../lib/demo';
 import type { Tournament } from '../types';
 
@@ -10,7 +11,12 @@ export function matchLabel(match: DemoMatch): string {
     : `${match.division === 'consolation' ? 'Consolation' : 'Championship'} · round ${match.round}`;
 }
 
-export function LiveTables({ state, event, now = new Date() }: { state: DemoState; event: Tournament; now?: Date }) {
+export function LiveTables({ state, event, now }: { state: DemoState; event: Tournament; now?: Date }) {
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 15000);
+    return () => window.clearInterval(timer);
+  }, []);
   const matches = state.matches.filter((match) => match.eventId === event.id);
   const names = entryNames(state, event.id);
   const active = matches.filter((match) => match.state === 'active');
@@ -27,7 +33,7 @@ export function LiveTables({ state, event, now = new Date() }: { state: DemoStat
         {match ? <>
           <div className="live-opponents"><strong>{names.get(match.entryAId ?? resolved?.entryAId ?? '') ?? 'Awaiting player'}</strong><span>vs</span><strong>{names.get(match.entryBId ?? resolved?.entryBId ?? '') ?? 'Awaiting player'}</strong></div>
           <p>{matchLabel(match)}</p>
-          {validTime && <small>Started <time dateTime={started.toISOString()}>{started.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time> · {Math.max(0, Math.floor((now.getTime() - started.getTime()) / 60000))} min elapsed</small>}
+          {validTime && <small>Started <time dateTime={started.toISOString()}>{started.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time> · {Math.max(0, Math.floor(((now ?? clock).getTime() - started.getTime()) / 60000))} min elapsed</small>}
         </> : <p>{event.state === 'setup' ? 'Waiting for the draw' : event.state === 'finished' || event.state === 'cancelled' ? 'Event ended' : 'Waiting for the next assignment'}</p>}
       </article>;
     })}

@@ -23,7 +23,8 @@ import type {
 } from '../types';
 
 // Keep the previous demo snapshot untouched while starting the new rehearsal fresh.
-const STORAGE_KEY = 'table-tennis-manager:local-demo:v2';
+export const DEMO_STORAGE_KEY = 'table-tennis-manager:local-demo:v2';
+const STORAGE_KEY = DEMO_STORAGE_KEY;
 
 export interface DemoMatch {
   id: Id;
