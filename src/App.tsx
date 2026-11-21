@@ -23,7 +23,7 @@ import {
   signOut,
   type RemoteWorkspace,
 } from './lib/remote';
-import type { Entry, GameScore, GroupPlan, MutationResult, Player, Profile, Role, Tournament } from './types';
+import type { Entry, Experience, GameScore, GroupPlan, MutationResult, Player, Profile, Role, Tournament } from './types';
 
 type Section = 'Tournament' | 'Players' | 'Results';
 type TournamentTab = 'Players & payments' | 'Matches' | 'Groups & bracket';
@@ -49,7 +49,8 @@ export default function App() {
   const [section, setSection] = useState<Section>('Tournament');
   const [tournamentTab, setTournamentTab] = useState<TournamentTab>('Players & payments');
   const [notice, setNotice] = useState<string | null>(null);
-  const refreshLock = useRef(false);
+  const [experienceSaves, setExperienceSaves] = useState(0);
+  const refreshInFlight = useRef<Promise<void> | null>(null);
   const profileId = profile?.id;
   const profileRole = profile?.role;
   const state = remoteWorkspace;
@@ -58,33 +59,42 @@ export default function App() {
   const entries = state && event ? getEntries(state, event.id) : [];
 
   const refreshRemote = useCallback(async (targetEventId?: string) => {
-    if (!remoteMode || refreshLock.current) return;
-    refreshLock.current = true;
-    try {
-      const requestedEventId = displayEventId || targetEventId;
-      const workspace = await loadRemoteWorkspace(requestedEventId || undefined);
-      if (!workspace) {
-        setProfile(null);
-        setRemoteWorkspace(null);
-        setLoadedEventId('');
-        setRemoteFailure(null);
-      } else {
-        const normalized = withPlayers(workspace);
-        const preferred = normalized.tournaments.find((item) => item.state === 'groups' || item.state === 'playoffs') ?? normalized.tournaments[0];
-        const actualEventId = normalized.scoreboard?.eventId
-          ?? (requestedEventId && normalized.tournaments.some((item) => item.id === requestedEventId) ? requestedEventId : preferred?.id)
-          ?? '';
-        setProfile(normalized.profile);
-        setRemoteWorkspace(normalized);
-        setLoadedEventId(actualEventId);
-        setRemoteFailure(null);
-        if (normalized.scoreboard) setSelectedEventId(normalized.scoreboard.eventId);
-        else if (!displayEventId && actualEventId && (!targetEventId || !normalized.tournaments.some((item) => item.id === targetEventId))) setSelectedEventId(actualEventId);
+    if (!remoteMode || refreshInFlight.current) return;
+    const request = (async () => {
+      try {
+        const requestedEventId = displayEventId || targetEventId;
+        const workspace = await loadRemoteWorkspace(requestedEventId || undefined);
+        if (!workspace) {
+          setProfile(null);
+          setRemoteWorkspace(null);
+          setLoadedEventId('');
+          setRemoteFailure(null);
+        } else {
+          const normalized = withPlayers(workspace);
+          const preferred = normalized.tournaments.find((item) => item.state === 'groups' || item.state === 'playoffs') ?? normalized.tournaments[0];
+          const actualEventId = normalized.scoreboard?.eventId
+            ?? (requestedEventId && normalized.tournaments.some((item) => item.id === requestedEventId) ? requestedEventId : preferred?.id)
+            ?? '';
+          setProfile(normalized.profile);
+          setRemoteWorkspace(normalized);
+          setLoadedEventId(actualEventId);
+          setRemoteFailure(null);
+          if (normalized.scoreboard) setSelectedEventId(normalized.scoreboard.eventId);
+          else if (!displayEventId && actualEventId && (!targetEventId || !normalized.tournaments.some((item) => item.id === targetEventId))) setSelectedEventId(actualEventId);
+        }
+        setLastRefreshed(new Date());
+      } catch (error) {
+        setRemoteFailure(error instanceof Error ? error.message : 'Could not connect to the shared tournament database.');
+      } finally {
+        setRemoteLoading(false);
       }
-      setLastRefreshed(new Date());
-    } catch (error) {
-      setRemoteFailure(error instanceof Error ? error.message : 'Could not connect to the shared tournament database.');
-    } finally { refreshLock.current = false; setRemoteLoading(false); }
+    })();
+    refreshInFlight.current = request;
+    try {
+      await request;
+    } finally {
+      refreshInFlight.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -199,6 +209,31 @@ export default function App() {
 
   async function updatePlayer(playerId: string, patch: { name?: string; label?: string | null; experience?: 'unknown' | 'beginner' | 'casual' | 'club' | 'varsity' }): Promise<string | null> {
     return (await runRemote(remoteActions.updatePlayer(playerId, patch))).error;
+  }
+
+  async function updateExperience(playerId: string, experience: Experience): Promise<string | null> {
+    setExperienceSaves((count) => count + 1);
+    try {
+      const result = await remoteActions.updatePlayer(playerId, { experience });
+      if (!result.ok) {
+        setNotice(result.message);
+        return result.message;
+      }
+      const saved = result.value;
+      // Let any older roster fetch settle before applying the confirmed save.
+      await refreshInFlight.current;
+      setRemoteWorkspace((workspace) => workspace && withPlayers({
+        ...workspace,
+        players: workspace.players.map((player) => {
+          if (player.id !== saved.id || Date.parse(player.updatedAt) > Date.parse(saved.updatedAt)) return player;
+          return saved;
+        }),
+      }));
+      setNotice(null);
+      return null;
+    } finally {
+      setExperienceSaves((count) => count - 1);
+    }
   }
 
   async function archivePlayer(playerId: string): Promise<string | null> {
@@ -325,8 +360,8 @@ export default function App() {
       <TournamentSettings key={event.id + '-' + event.updatedAt} tournaments={state.tournaments} selected={event} onSelect={(id) => { setSelectedEventId(id); void refreshRemote(id); }} onCreate={createEvent} onSave={updateEvent} onCancel={cancelTournament} onFinish={finishTournament} readOnly={false} />
       <nav className="tournament-tabs" aria-label="Tournament sections">{(['Players & payments', 'Matches', 'Groups & bracket'] as const).map((tab) => <button key={tab} type="button" className={tournamentTab === tab ? 'tournament-tab active' : 'tournament-tab'} onClick={() => setTournamentTab(tab)}>{tab}</button>)}</nav>
       {tournamentTab === 'Matches' && <Matches state={state} event={event} onStart={startMatch} onScore={saveScore} onResolve={resolveMatch} onClear={clearResult} />}
-      {tournamentTab === 'Players & payments' && <Roster state={state} event={event} entries={entries} players={state.players} onRegister={registerEntry} onCreatePlayer={createPlayerRecord} onUpdateEntry={updateEntry} onPromoteWaitlist={promoteWaitlist} />}
-      {tournamentTab === 'Groups & bracket' && <Groups state={state} event={event} onStart={startGroups} onPlayoffs={createPlayoffs} onRecordLots={async (groupIndex, entryIds) => updateEvent(event.id, { lotOrders: { ...event.lotOrders, [String(groupIndex)]: entryIds } })} onResetPlayoffs={resetPlayoffs} />}
+      {tournamentTab === 'Players & payments' && <Roster state={state} event={event} entries={entries} players={state.players} onRegister={registerEntry} onCreatePlayer={createPlayerRecord} onUpdateEntry={updateEntry} onUpdateExperience={updateExperience} onPromoteWaitlist={promoteWaitlist} />}
+      {tournamentTab === 'Groups & bracket' && <Groups state={state} event={event} savingExperience={experienceSaves > 0} onStart={startGroups} onPlayoffs={createPlayoffs} onRecordLots={async (groupIndex, entryIds) => updateEvent(event.id, { lotOrders: { ...event.lotOrders, [String(groupIndex)]: entryIds } })} onResetPlayoffs={resetPlayoffs} />}
     </>}
     {section === 'Players' && <Players players={state.players} onCreate={createPlayer} onUpdate={updatePlayer} onArchive={archivePlayer} />}
     {section === 'Results' && <Results state={state} tournaments={state.tournaments} selectedEventId={event.id} onSelectEvent={(id) => { setSelectedEventId(id); void refreshRemote(id); }} />}
