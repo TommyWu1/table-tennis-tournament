@@ -6,6 +6,7 @@ import type { GroupPlan, Tournament } from '../types';
 interface GroupsProps {
   state: TournamentState;
   event: Tournament;
+  savingExperience?: boolean;
   onStart: (plans: GroupPlan[], seed: number, mode: 'random' | 'balanced') => Promise<string | null>;
   onPlayoffs: (seed: number) => Promise<string | null>;
   onRecordLots: (groupIndex: number, entryIds: string[]) => Promise<string | null>;
@@ -13,7 +14,7 @@ interface GroupsProps {
   readOnly?: boolean;
 }
 
-export function Groups({ state, event, onStart, onPlayoffs, onRecordLots, onResetPlayoffs, readOnly = false }: GroupsProps) {
+export function Groups({ state, event, savingExperience = false, onStart, onPlayoffs, onRecordLots, onResetPlayoffs, readOnly = false }: GroupsProps) {
   const entries = getEntries(state, event.id);
   const checkedIn = entries.filter((entry) => entry.registrationStatus === 'registered' && entry.checkedIn);
   const options = suggestGroups(checkedIn.length);
@@ -75,7 +76,8 @@ export function Groups({ state, event, onStart, onPlayoffs, onRecordLots, onRese
             <header><h3>Group {group.groupIndex}</h3><span>{group.entryIds.length} players · {group.entryIds.length * (group.entryIds.length - 1) / 2} fixtures</span></header>
             <ol>{group.entryIds.map((entryId) => <li key={entryId}>{entryName(entryId)}{entries.find((entry) => entry.id === entryId)?.paid ? '' : <span className="badge badge-warn">fee unpaid</span>}</li>)}</ol>
           </article>)}
-          {!readOnly && <div className="action-row"><button className="button button-primary" type="button" disabled={busy || !currentPreview} onClick={() => { if (currentPreview) void run(() => onStart(currentPreview, seed, mode), 'Groups started and fixtures saved.'); }}>{busy ? 'Saving…' : `Start groups with ${checkedIn.length} players`}</button><span className="muted-copy">{groupMatchCount} group matches · minimum {selectedOption?.minimumGroupMatches ?? 0} per player</span></div>}
+          {!readOnly && <div className="action-row"><button className="button button-primary" type="button" disabled={busy || savingExperience || !currentPreview} onClick={() => { if (currentPreview) void run(() => onStart(currentPreview, seed, mode), 'Groups started and fixtures saved.'); }}>{busy ? 'Saving…' : `Start groups with ${checkedIn.length} players`}</button><span className="muted-copy">{groupMatchCount} group matches · minimum {selectedOption?.minimumGroupMatches ?? 0} per player</span></div>}
+          {savingExperience && <p className="table-note" role="status">Saving player experience before the draw…</p>}
         </>}
         {message && <p className={message.includes('saved') || message.includes('started') ? 'inline-success' : 'inline-status'} role="status">{message}</p>}
       </section>

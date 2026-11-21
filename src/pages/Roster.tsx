@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { amountDueCents, parseMoneyToCents, paymentDraft } from '../lib/money';
 import { downloadRosterCsv } from '../lib/export';
 import type { TournamentState } from '../lib/tournament';
-import type { Entry, MutationResult, PaymentMethod, Player, Tournament } from '../types';
+import type { Entry, Experience, MutationResult, PaymentMethod, Player, Tournament } from '../types';
 
 interface RosterProps {
   state: TournamentState;
@@ -12,11 +12,20 @@ interface RosterProps {
   onRegister: (playerId: string, allowWaitlist?: boolean) => Promise<string | null>;
   onCreatePlayer: (input: { name: string }) => Promise<MutationResult<Player>>;
   onUpdateEntry: (entryId: string, patch: Partial<Entry>) => Promise<string | null>;
+  onUpdateExperience: (playerId: string, experience: Experience) => Promise<string | null>;
   onPromoteWaitlist: () => Promise<string | null>;
 }
 
 const currency = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' });
 const money = (cents: number) => currency.format(cents / 100);
+const nameOrder = new Intl.Collator('en-CA', { sensitivity: 'base' });
+const experienceLabels: Record<Experience, string> = {
+  unknown: 'Unknown',
+  beginner: 'Beginner',
+  casual: 'Casual',
+  club: 'Club',
+  varsity: 'Varsity',
+};
 
 export interface BulkRosterPlanRow {
   line: number;
@@ -249,7 +258,33 @@ function PaymentEditor({ entry, onSave }: {
   );
 }
 
-export function Roster({ state, event, entries, players, onRegister, onCreatePlayer, onUpdateEntry, onPromoteWaitlist }: RosterProps) {
+function RosterExperience({ player, onSave }: { player: Player; onSave: RosterProps['onUpdateExperience'] }) {
+  const [pending, setPending] = useState<Experience | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function change(experience: Experience) {
+    setPending(experience);
+    setError(null);
+    try {
+      setError(await onSave(player.id, experience));
+    } catch {
+      setError('Could not save experience. Try again.');
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return <>
+    <select aria-label={`Experience for ${player.name}`} value={pending ?? player.experience}
+      disabled={pending !== null} onChange={(event) => void change(event.currentTarget.value as Experience)}>
+      {Object.entries(experienceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+    </select>
+    {pending !== null && <small className="subcell" role="status">Saving…</small>}
+    {error && <div className="field-error" role="alert">{error}</div>}
+  </>;
+}
+
+export function Roster({ state, event, entries, players, onRegister, onCreatePlayer, onUpdateEntry, onUpdateExperience, onPromoteWaitlist }: RosterProps) {
   const [query, setQuery] = useState('');
   const [selectedPlayer, setSelectedPlayer] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -269,6 +304,13 @@ export function Roster({ state, event, entries, players, onRegister, onCreatePla
   const discounts = entries.reduce((sum, entry) => sum + entry.discountCents, 0);
   const canEditAttendance = event.state === 'setup';
   const canWithdraw = event.state !== 'finished' && event.state !== 'cancelled';
+  const playerById = new Map(players.map((player) => [player.id, player]));
+  const roster = entries.map((entry) => ({ entry, player: playerById.get(entry.playerId) ?? entry.player }))
+    .sort((a, b) => {
+      if (!a.player || !b.player) return Number(!a.player) - Number(!b.player);
+      return nameOrder.compare(a.player.name, b.player.name)
+        || nameOrder.compare(a.player.label ?? '', b.player.label ?? '');
+    });
 
   async function addSelected() {
     if (!selectedPlayer) return;
@@ -287,7 +329,7 @@ export function Roster({ state, event, entries, players, onRegister, onCreatePla
       <div className="section-heading">
         <div>
           <h2 id="roster-heading">Players &amp; payments</h2>
-          <p>Check in entrants and record what was actually collected.</p>
+          <p>{canEditAttendance ? 'Check in players, set experience for the balanced draw, and record payments.' : 'Review attendance and record payments.'}</p>
         </div>
         <div className="roster-heading-actions"><span className="section-count">{registered.length} / {event.registrationCap} registered</span><button className="button button-secondary button-small" type="button" onClick={() => downloadRosterCsv(state, event.id)}>Export roster CSV</button></div>
       </div>
@@ -331,11 +373,10 @@ export function Roster({ state, event, entries, players, onRegister, onCreatePla
       <div className="table-scroll">
         <table className="roster-table">
           <thead>
-            <tr><th>Player</th><th>Check-in</th><th>Registration</th><th>Fee due</th><th>Payment</th><th>Actions</th></tr>
+            <tr><th scope="col" aria-sort="ascending">Player</th><th>Check-in</th><th>Experience</th><th>Registration</th><th>Fee due</th><th>Payment</th><th>Actions</th></tr>
           </thead>
           <tbody>
-            {entries.map((entry) => {
-              const player = entry.player ?? players.find((candidate) => candidate.id === entry.playerId);
+            {roster.map(({ entry, player }) => {
               const due = Math.max(0, entry.baseFeeCents - entry.discountCents);
               return (
                 <tr key={entry.id}>
@@ -350,6 +391,11 @@ export function Roster({ state, event, entries, players, onRegister, onCreatePla
                         <span>{entry.checkedIn ? 'Checked in' : 'Not checked in'}</span>
                       </label>
                     ) : <span className="muted-cell">—</span>}
+                  </td>
+                  <td>
+                    {player && canEditAttendance && !player.archived && entry.registrationStatus !== 'withdrawn'
+                      ? <RosterExperience player={player} onSave={onUpdateExperience} />
+                      : <span className="muted-cell">{player ? experienceLabels[player.experience] : '—'}</span>}
                   </td>
                   <td><span className={`status-text status-${entry.registrationStatus}`}>{entry.registrationStatus}</span></td>
                   <td>{money(due)}{entry.discountCents > 0 && <small className="subcell">discount {money(entry.discountCents)}</small>}</td>
@@ -372,7 +418,7 @@ export function Roster({ state, event, entries, players, onRegister, onCreatePla
                 </tr>
               );
             })}
-            {entries.length === 0 && <tr><td colSpan={6} className="empty-row">No entrants yet. Add a returning player above or create a player record.</td></tr>}
+            {entries.length === 0 && <tr><td colSpan={7} className="empty-row">No entrants yet. Add a returning player above or create a player record.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -386,6 +432,7 @@ export function Roster({ state, event, entries, players, onRegister, onCreatePla
         </div>
       )}
       <p className="table-note">Unpaid entrants remain eligible for the draw. Totals use recorded amounts, not the number of players.</p>
+      {canEditAttendance && <p className="table-note">Balanced seeding uses experience until a player has five rated matches. After that it uses their rating.</p>}
     </section>
   );
 }

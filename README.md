@@ -47,7 +47,7 @@ From the tournament dashboard, click **Open projector view**. Move that tab into
 
 On a Mac, connect the projector, then open **System Settings → Displays**, select the projector, and choose **Extended display** under **Use as**. Keep the MacBook as your main display. [Apple’s extended-display instructions](https://support.apple.com/en-gb/guide/mac-help/mchlb5f905a1/mac) explain the display setup. Keep the laptop plugged in and awake during the event.
 
-The projector stays on the event you opened, even if you select another event on the desk. It shows live table assignments above group standings, then switches to the championship/consolation brackets when playoffs start. Large groups and bracket sections rotate every 20 seconds; pause rotation or use the arrows to hold a screen. Names, results, byes and advancing winners are visible; payment records and editing controls are omitted.
+The projector stays on the event you opened, even if you select another event on the desk. It shows live table assignments above group standings, then switches to the championship/consolation brackets when playoffs start. All groups show together. During knockouts, both brackets stay visible with every round on the same page. Use fullscreen at 1920 × 1080 for the clearest room view. Smaller screens and larger brackets may need scrolling.
 
 Open the display from a browser signed in as an organizer. It refreshes from Supabase every five seconds while visible, including scores entered by phone scorekeepers. A connection warning identifies a stale shared view while the app reconnects.
 
