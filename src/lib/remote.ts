@@ -235,7 +235,7 @@ export const remoteActions: OrganizerActions = {
         eligible.forEach((row, index) => {
           if (row.rank === null) return;
           const entry = { entryId: row.entryId, groupIndex: Number(groupIndex), place: row.rank };
-          (index < event.qualifiersPerGroup ? championship : consolation).push(entry);
+          (!event.consolationEnabled || index < event.qualifiersPerGroup ? championship : consolation).push(entry);
         });
       }
       return api.savePlayoffs(eventId, revision, {
