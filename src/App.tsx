@@ -23,7 +23,7 @@ import {
   signOut,
   type RemoteWorkspace,
 } from './lib/remote';
-import type { Entry, GameScore, GroupPlan, MutationResult, Player, Profile, Tournament } from './types';
+import type { Entry, GameScore, GroupPlan, MutationResult, Player, Profile, Role, Tournament } from './types';
 
 type Section = 'Tournament' | 'Players' | 'Results';
 type TournamentTab = 'Players & payments' | 'Matches' | 'Groups & bracket';
@@ -31,6 +31,7 @@ const remoteMode = isSupabaseConfigured();
 const displayRequested = new URLSearchParams(window.location.search).get('view') === 'display';
 const displayEventId = displayRequested ? new URLSearchParams(window.location.search).get('event') ?? '' : '';
 const SCORE_DRAFT_PREFIX = 'tttm:score-draft:';
+const ORGANIZER_EMAIL = import.meta.env.VITE_ORGANIZER_EMAIL?.trim() || 'organizer@example.com';
 
 function withPlayers(workspace: RemoteWorkspace): RemoteWorkspace {
   const players = new Map(workspace.players.map((player) => [player.id, player]));
@@ -278,8 +279,8 @@ export default function App() {
     return null;
   }
 
-  async function login(email: string, password: string): Promise<string | null> {
-    const result = await signIn(email, password);
+  async function login(email: string, password: string, requiredRole?: Role): Promise<string | null> {
+    const result = await signIn(email, password, requiredRole);
     if (!result.ok) return result.message;
     setProfile(result.value);
     setRemoteLoading(true);
@@ -341,14 +342,50 @@ function ConnectionError({ message, onRetry }: { message: string; onRetry: () =>
   return <main className="app-shell"><div className="login-panel"><p className="eyebrow">Shared event unavailable</p><h1>Could not refresh the tournament</h1><p className="setup-copy">{message}</p><button className="button button-primary" type="button" onClick={onRetry}>Try again</button></div></main>;
 }
 
-function SignInScreen({ onSignIn, error }: { onSignIn: (email: string, password: string) => Promise<string | null>; error: string | null }) {
-  const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [message, setMessage] = useState<string | null>(error); const [busy, setBusy] = useState(false);
+type SignInMode = 'organizer-code' | 'email-password';
+
+function SignInScreen({ onSignIn, error }: { onSignIn: (email: string, password: string, requiredRole?: Role) => Promise<string | null>; error: string | null }) {
+  const [mode, setMode] = useState<SignInMode>('organizer-code');
+  const [email, setEmail] = useState('');
+  const [accessCode, setAccessCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [message, setMessage] = useState<string | null>(error);
+  const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setMessage(null);
-    try { setMessage(await onSignIn(email, password)); } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not sign in.'); }
+    try {
+      const failure = mode === 'organizer-code'
+        ? await onSignIn(ORGANIZER_EMAIL, accessCode, 'admin')
+        : await onSignIn(email, password);
+      setMessage(failure);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not sign in.'); }
     finally { setBusy(false); }
   }
-  return <main className="auth-shell"><header className="product-lockup"><span className="brand-mark">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>Shared tournament desk</small></span></header><form className="login-panel" onSubmit={(event) => void submit(event)}><p className="eyebrow">Team account</p><h1>Sign in</h1><p className="setup-copy">Use the email and password created for your organizer or scorekeeper account.</p><label><span>Email</span><input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.currentTarget.value)} /></label><label><span>Password</span><input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.currentTarget.value)} /></label>{message && <p className="field-error" role="alert">{message}</p>}<button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button><p className="table-note">Accounts are provisioned by the tournament administrator. An organizer or scorekeeper role is required.</p></form></main>;
+  function switchMode(nextMode: SignInMode) {
+    setMode(nextMode);
+    setAccessCode('');
+    setPassword('');
+    setMessage(null);
+  }
+
+  return <main className="auth-shell">
+    <header className="product-lockup"><span className="brand-mark">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>Shared tournament desk</small></span></header>
+    <form className="login-panel" onSubmit={(event) => void submit(event)}>
+      <p className="eyebrow">Team account</p>
+      <h1>{mode === 'organizer-code' ? 'Organizer access' : 'Sign in'}</h1>
+      <p className="setup-copy">{mode === 'organizer-code' ? 'Enter the organizer access code to open the shared tournament desk.' : 'Use the email and password for your organizer or scorekeeper account.'}</p>
+      {mode === 'organizer-code' ? <label htmlFor="organizer-access-code"><span>Organizer access code</span><input id="organizer-access-code" aria-label="Organizer access code" name="organizer-access-code" type="password" autoComplete="current-password" required value={accessCode} onChange={(event) => setAccessCode(event.currentTarget.value)} /></label> : <>
+        <label htmlFor="account-email"><span>Email</span><input id="account-email" name="email" type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.currentTarget.value)} /></label>
+        <label htmlFor="account-password"><span>Password</span><input id="account-password" aria-label="Password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.currentTarget.value)} /></label>
+      </>}
+      {message && <p className="field-error" role="alert">{message}</p>}
+      <button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : mode === 'organizer-code' ? 'Continue as organizer' : 'Sign in'}</button>
+      <p className="table-note">Accounts are provisioned by the tournament administrator. An organizer or scorekeeper role is required.</p>
+      <button className="text-button" type="button" disabled={busy} onClick={() => switchMode(mode === 'organizer-code' ? 'email-password' : 'organizer-code')}>
+        {mode === 'organizer-code' ? 'Use email and password for scorekeeper access' : 'Use organizer access code'}
+      </button>
+    </form>
+  </main>;
 }
 
 function MissingConfiguration() {
