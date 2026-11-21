@@ -3,7 +3,7 @@ import { getSupabase } from './supabase';
 import type { EntryRow, MatchRow, PlayerRow, ProfileRow, TournamentRow } from './database.types';
 import { groupsReadyForPlayoffs, type TournamentMatch, type TournamentState } from './tournament';
 import { buildBracket, orderQualifiers, type QualifiedEntry } from '../domain/bracket';
-import type { Entry, Experience, GameScore, GroupPlan, MutationResult, Player, Profile, Scoreboard, ScoreboardMatch, Tournament, Slot } from '../types';
+import type { Entry, Experience, GameScore, GroupPlan, MutationResult, Player, Profile, Role, Scoreboard, ScoreboardMatch, Tournament, Slot } from '../types';
 
 export interface RemoteWorkspace extends TournamentState {
   profile: Profile;
@@ -78,13 +78,22 @@ export async function getRemoteProfile(): Promise<Profile | null> {
   return { id: row.id, displayName: row.display_name, role: row.role, createdAt: row.created_at };
 }
 
-export async function signIn(email: string, password: string): Promise<MutationResult<Profile>> {
+export async function signIn(email: string, password: string, requiredRole?: Role): Promise<MutationResult<Profile>> {
   try {
-    const { error } = await getSupabase().auth.signInWithPassword({ email: email.trim(), password });
+    const client = getSupabase();
+    const { error } = await client.auth.signInWithPassword({ email: email.trim(), password });
     if (error) throw error;
-    const profile = await getRemoteProfile();
-    if (!profile) throw new Error('forbidden: Please sign in again.');
-    return { ok: true, value: profile };
+    try {
+      const profile = await getRemoteProfile();
+      if (!profile) throw new Error('forbidden: Please sign in again.');
+      if (requiredRole && profile.role !== requiredRole) {
+        throw new Error('forbidden: This sign-in requires an organizer account.');
+      }
+      return { ok: true, value: profile };
+    } catch (error) {
+      await client.auth.signOut({ scope: 'local' });
+      throw error;
+    }
   } catch (error) { return remoteError(error); }
 }
 
