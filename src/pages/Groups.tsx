@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { suggestGroups } from '../domain/groups';
-import { getEntries, groupStandings, groupsReadyForPlayoffs, previewGroups, resolvedDemoMatch, type DemoState } from '../lib/demo';
+import { getEntries, groupStandings, groupsReadyForPlayoffs, previewGroups, resolveMatchEntries, type TournamentState } from '../lib/tournament';
 import type { GroupPlan, Tournament } from '../types';
 
 interface GroupsProps {
-  state: DemoState;
+  state: TournamentState;
   event: Tournament;
   onStart: (plans: GroupPlan[], seed: number, mode: 'random' | 'balanced') => Promise<string | null>;
   onPlayoffs: (seed: number) => Promise<string | null>;
@@ -23,8 +23,8 @@ export function Groups({ state, event, onStart, onPlayoffs, onRecordLots, onRese
   const [averageMatchMinutes, setAverageMatchMinutes] = useState(10);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState<GroupPlan[] | null>(null);
-  const selectedOption = options[Math.min(optionIndex, Math.max(0, options.length - 1))];
+  const selectedIndex = Math.min(optionIndex, Math.max(0, options.length - 1));
+  const selectedOption = options[selectedIndex];
   const currentMatches = state.matches.filter((match) => match.eventId === event.id);
   const groupNumbers = [...new Set(entries.map((entry) => entry.groupIndex).filter((value): value is number => value !== null))].sort((a, b) => a - b);
   const playoffsAllowed = groupsReadyForPlayoffs(state, event.id);
@@ -33,7 +33,7 @@ export function Groups({ state, event, onStart, onPlayoffs, onRecordLots, onRese
   if (selectedOption && event.state === 'setup') {
     try { currentPreview = previewGroups(state, event.id, selectedOption.sizes, mode, seed); } catch { currentPreview = null; }
   }
-  const visiblePreview = preview ?? currentPreview;
+  const absentCount = entries.filter((entry) => entry.registrationStatus === 'registered' && !entry.checkedIn).length;
   const projectedChampionshipEntrants = selectedOption?.sizes.reduce((sum, size) => sum + Math.min(event.qualifiersPerGroup, size), 0) ?? 0;
   const projectedConsolationEntrants = Math.max(0, checkedIn.length - projectedChampionshipEntrants);
   const projectedPlayoffMatches = (projectedChampionshipEntrants > 1 ? projectedChampionshipEntrants - 1 : 0)
@@ -57,24 +57,25 @@ export function Groups({ state, event, onStart, onPlayoffs, onRecordLots, onRese
   if (event.state === 'setup') {
     return (
       <section className="page-section" aria-labelledby="groups-heading">
-        <div className="section-heading"><div><h2 id="groups-heading">Groups &amp; bracket</h2><p>Review a saved-seed draw before groups begin.</p></div><span className="section-count">{checkedIn.length} checked in</span></div>
+        <div className="section-heading"><div><h2 id="groups-heading">Groups &amp; bracket</h2><p>Review the draw after everyone has checked in.</p></div><span className="section-count">{checkedIn.length} checked in</span></div>
         {checkedIn.length < 4 ? <div className="notice-card"><strong>Check in at least four players</strong><p>A competitive draw needs four or more checked-in entrants.</p></div> : <>
           <div className="draw-controls">
-            <label><span>Group sizes</span><select value={optionIndex} onChange={(event) => { setOptionIndex(Number(event.currentTarget.value)); setPreview(null); }}>
+            <label><span>Group sizes</span><select value={selectedIndex} onChange={(event) => setOptionIndex(Number(event.currentTarget.value))}>
               {options.map((option, index) => <option value={index} key={option.sizes.join('-')}>{option.sizes.join(' · ')} — {option.matchCount} matches</option>)}
             </select></label>
-            <label><span>Seeding</span><select value={mode} onChange={(event) => { setMode(event.currentTarget.value as 'random' | 'balanced'); setPreview(null); }}><option value="balanced">Balanced by rating / experience</option><option value="random">Random</option></select></label>
-            <label><span>Draw seed</span><input type="number" value={seed} onChange={(event) => { setSeed(Number(event.currentTarget.value)); setPreview(null); }} /></label>
-            <button className="button button-secondary" type="button" onClick={() => { setSeed(Math.floor(Math.random() * 1_000_000_000)); setPreview(null); }}>New draw</button>
+            <label><span>Seeding</span><select value={mode} onChange={(event) => setMode(event.currentTarget.value as 'random' | 'balanced')}><option value="balanced">Balanced by rating / experience</option><option value="random">Random</option></select></label>
+            <label><span>Draw seed</span><input type="number" value={seed} onChange={(event) => setSeed(Number(event.currentTarget.value))} /></label>
+            <button className="button button-secondary" type="button" onClick={() => setSeed(Math.floor(Math.random() * 1_000_000_000))}>New draw</button>
             <label className="average-minutes-input"><span>Minutes per match</span><input type="number" min="5" max="45" step="1" value={averageMatchMinutes} onChange={(event) => setAverageMatchMinutes(Number(event.currentTarget.value))} /></label>
           </div>
           <div className={'time-estimate' + (bookingOverrun ? ' overrun' : '')}><div><span>Estimated fixtures</span><strong>{estimatedFixtures}</strong></div><div><span>Lower-bound table time</span><strong>{tableMinutes} min <small>of {event.bookingMinutes} min booked</small></strong></div><span className="time-estimate-status">{bookingOverrun ? 'Above booking time' : 'Within booking window'}</span></div>
-          <p className="table-note">Unpaid entrants are still eligible. Preview includes checked-in, registered players only. Time estimate uses your minutes-per-match value and configured tables; it excludes changeovers and knockout dependencies and does not guarantee the event will fit.</p>
-          {visiblePreview?.map((group) => <article className="group-card" key={group.groupIndex}>
+          {absentCount > 0 && <p className="inline-status">{absentCount} registered {absentCount === 1 ? 'player is' : 'players are'} still unchecked and will be left out of the draw. Starting groups closes check-in for this draw.</p>}
+          <p className="table-note">Unpaid entrants are still eligible. The time estimate uses your minutes per match and table count and excludes changeovers and waits between rounds.</p>
+          {currentPreview?.map((group) => <article className="group-card" key={group.groupIndex}>
             <header><h3>Group {group.groupIndex}</h3><span>{group.entryIds.length} players · {group.entryIds.length * (group.entryIds.length - 1) / 2} fixtures</span></header>
             <ol>{group.entryIds.map((entryId) => <li key={entryId}>{entryName(entryId)}{entries.find((entry) => entry.id === entryId)?.paid ? '' : <span className="badge badge-warn">fee unpaid</span>}</li>)}</ol>
           </article>)}
-          {!readOnly && <div className="action-row"><button className="button button-primary" type="button" disabled={busy || !visiblePreview} onClick={() => void run(() => onStart(visiblePreview ?? [], seed, mode), 'Groups started and fixtures saved.')}>{busy ? 'Saving…' : 'Start groups'}</button><span className="muted-copy">{groupMatchCount} group matches · minimum {selectedOption?.minimumGroupMatches ?? 0} per player</span></div>}
+          {!readOnly && <div className="action-row"><button className="button button-primary" type="button" disabled={busy || !currentPreview} onClick={() => { if (currentPreview) void run(() => onStart(currentPreview, seed, mode), 'Groups started and fixtures saved.'); }}>{busy ? 'Saving…' : `Start groups with ${checkedIn.length} players`}</button><span className="muted-copy">{groupMatchCount} group matches · minimum {selectedOption?.minimumGroupMatches ?? 0} per player</span></div>}
         </>}
         {message && <p className={message.includes('saved') || message.includes('started') ? 'inline-success' : 'inline-status'} role="status">{message}</p>}
       </section>
@@ -106,7 +107,7 @@ export function Groups({ state, event, onStart, onPlayoffs, onRecordLots, onRese
           const matches = playoffMatches.filter((match) => match.division === division).sort((a, b) => a.round - b.round || a.sequence - b.sequence);
           if (matches.length === 0) return null;
           return <section key={division}><h3>{division === 'championship' ? 'Championship' : 'Consolation'}</h3>{matches.map((match) => {
-            const resolved = resolvedDemoMatch(match, currentMatches);
+            const resolved = resolveMatchEntries(match, currentMatches);
             const entryAId = match.entryAId ?? resolved.entryAId;
             const entryBId = match.entryBId ?? resolved.entryBId;
             const roundName = matches.some((candidate) => candidate.round > match.round) ? 'Round ' + match.round : 'Final';

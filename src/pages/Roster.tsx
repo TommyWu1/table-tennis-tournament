@@ -1,21 +1,120 @@
 import { useMemo, useState } from 'react';
 import { amountDueCents, parseMoneyToCents, paymentDraft } from '../lib/money';
 import { downloadRosterCsv } from '../lib/export';
-import type { DemoState } from '../lib/demo';
-import type { Entry, PaymentMethod, Player, Tournament } from '../types';
+import type { TournamentState } from '../lib/tournament';
+import type { Entry, MutationResult, PaymentMethod, Player, Tournament } from '../types';
 
 interface RosterProps {
-  state: DemoState;
+  state: TournamentState;
   event: Tournament;
   entries: Entry[];
   players: Player[];
-  onRegister: (playerId: string) => Promise<string | null>;
+  onRegister: (playerId: string, allowWaitlist?: boolean) => Promise<string | null>;
+  onCreatePlayer: (input: { name: string }) => Promise<MutationResult<Player>>;
   onUpdateEntry: (entryId: string, patch: Partial<Entry>) => Promise<string | null>;
   onPromoteWaitlist: () => Promise<string | null>;
 }
 
 const currency = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' });
 const money = (cents: number) => currency.format(cents / 100);
+
+export interface BulkRosterPlanRow {
+  line: number;
+  name: string;
+  playerId: string | null;
+  alreadyOnRoster: boolean;
+  existingRegistrationStatus: Entry['registrationStatus'] | null;
+  existingCheckedIn: boolean | null;
+}
+
+export type BulkRosterPlan =
+  | {
+      ok: true;
+      rows: BulkRosterPlanRow[];
+      newEntrants: number;
+      existingOnRoster: number;
+      existingRegistered: number;
+      existingWaitlisted: number;
+      existingWithdrawn: number;
+      existingNotCheckedIn: number;
+    }
+  | { ok: false; message: string };
+
+function normalizedPlayerName(name: string): string {
+  return name.normalize('NFKC').trim().toLocaleLowerCase();
+}
+
+export function planBulkRosterImport(
+  pastedNames: string,
+  players: readonly Player[],
+  entries: readonly Pick<Entry, 'playerId' | 'registrationStatus' | 'checkedIn'>[],
+  event: Pick<Tournament, 'state' | 'registrationCap'>,
+): BulkRosterPlan {
+  if (event.state !== 'setup') return { ok: false, message: 'Bulk roster import is available only before groups start.' };
+  const names = pastedNames.split(/\r\n?|\n/)
+    .map((raw, index) => ({ line: index + 1, name: raw.trim() }))
+    .filter(({ name }) => name.length > 0);
+  if (names.length === 0) return { ok: false, message: 'Paste one player name per line.' };
+  if (names.length > 25) return { ok: false, message: 'Paste no more than 25 names at a time.' };
+
+  const seenNames = new Map<string, number>();
+  for (const row of names) {
+    if (row.name.length > 100) return { ok: false, message: `Line ${row.line} exceeds the 100-character player-name limit.` };
+    const key = normalizedPlayerName(row.name);
+    const previousLine = seenNames.get(key);
+    if (previousLine !== undefined) {
+      return { ok: false, message: `Lines ${previousLine} and ${row.line} have the same name after trimming and case-folding. Import them individually to disambiguate.` };
+    }
+    seenNames.set(key, row.line);
+  }
+
+  const rows: BulkRosterPlanRow[] = [];
+  for (const row of names) {
+    const matches = players.filter((player) => normalizedPlayerName(player.name) === normalizedPlayerName(row.name));
+    if (matches.length > 1) {
+      return { ok: false, message: `Line ${row.line} matches multiple player records. Resolve the duplicate-name choice in Players before importing.` };
+    }
+    const player = matches[0];
+    const existingEntry = player ? entries.find((entry) => entry.playerId === player.id) : undefined;
+    if (player?.archived && !existingEntry) {
+      return { ok: false, message: `Line ${row.line} matches an archived player. Resolve that record in Players before importing.` };
+    }
+    rows.push({
+      line: row.line,
+      name: row.name,
+      playerId: player?.id ?? null,
+      alreadyOnRoster: existingEntry !== undefined,
+      existingRegistrationStatus: existingEntry?.registrationStatus ?? null,
+      existingCheckedIn: existingEntry?.checkedIn ?? null,
+    });
+  }
+
+  const newEntrants = rows.filter((row) => !row.alreadyOnRoster).length;
+  const existingOnRoster = rows.length - newEntrants;
+  const existingRegistered = rows.filter((row) => row.existingRegistrationStatus === 'registered').length;
+  const existingWaitlisted = rows.filter((row) => row.existingRegistrationStatus === 'waitlisted').length;
+  const existingWithdrawn = rows.filter((row) => row.existingRegistrationStatus === 'withdrawn').length;
+  const existingNotCheckedIn = rows.filter((row) =>
+    row.existingRegistrationStatus === 'registered' && row.existingCheckedIn === false).length;
+  const registeredCount = entries.filter((entry) => entry.registrationStatus === 'registered').length;
+  const availableSpots = Math.max(0, event.registrationCap - registeredCount);
+  if (newEntrants > availableSpots) {
+    return {
+      ok: false,
+      message: `This paste needs ${newEntrants} new roster spots, but only ${availableSpots} remain within the event capacity. Increase the event cap before importing.`,
+    };
+  }
+  return {
+    ok: true,
+    rows,
+    newEntrants,
+    existingOnRoster,
+    existingRegistered,
+    existingWaitlisted,
+    existingWithdrawn,
+    existingNotCheckedIn,
+  };
+}
 
 function PaymentEditor({ entry, onSave }: {
   entry: Entry;
@@ -150,7 +249,7 @@ function PaymentEditor({ entry, onSave }: {
   );
 }
 
-export function Roster({ state, event, entries, players, onRegister, onUpdateEntry, onPromoteWaitlist }: RosterProps) {
+export function Roster({ state, event, entries, players, onRegister, onCreatePlayer, onUpdateEntry, onPromoteWaitlist }: RosterProps) {
   const [query, setQuery] = useState('');
   const [selectedPlayer, setSelectedPlayer] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -220,6 +319,14 @@ export function Roster({ state, event, entries, players, onRegister, onUpdateEnt
         </form>
       )}
 
+      {canEditAttendance && <BulkRosterImport
+        event={event}
+        entries={entries}
+        players={players}
+        onCreatePlayer={onCreatePlayer}
+        onRegister={onRegister}
+      />}
+
       {message && <p className="inline-status" role="status">{message}</p>}
       <div className="table-scroll">
         <table className="roster-table">
@@ -281,4 +388,119 @@ export function Roster({ state, event, entries, players, onRegister, onUpdateEnt
       <p className="table-note">Unpaid entrants remain eligible for the draw. Totals use recorded amounts, not the number of players.</p>
     </section>
   );
+}
+
+function BulkRosterImport({
+  event,
+  entries,
+  players,
+  onCreatePlayer,
+  onRegister,
+}: {
+  event: Tournament;
+  entries: Entry[];
+  players: Player[];
+  onCreatePlayer: RosterProps['onCreatePlayer'];
+  onRegister: RosterProps['onRegister'];
+}) {
+  const [pastedNames, setPastedNames] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const plan = useMemo(() => pastedNames.trim()
+    ? planBulkRosterImport(pastedNames, players, entries, event)
+    : null, [pastedNames, players, entries, event]);
+
+  async function applyPlan() {
+    if (!plan?.ok || busy) return;
+    setBusy(true);
+    setMessage(null);
+    let createdPlayers = 0;
+    let reusedPlayers = 0;
+    let addedEntries = 0;
+    let skippedEntries = 0;
+    let activeLine = plan.rows[0]?.line ?? 1;
+
+    const stopWithPartialResult = (line: number, detail: string) => {
+      setMessage(`${addedEntries} of ${plan.newEntrants} new entrants were added (${createdPlayers} player records created, ${reusedPlayers} existing players reused). Stopped at line ${line}: ${detail} Retry after the workspace refreshes; entries already on the roster will be skipped.`);
+    };
+
+    try {
+      for (let index = 0; index < plan.rows.length; index += 1) {
+        const row = plan.rows[index];
+        activeLine = row.line;
+        setProgress(`Processing name ${index + 1} of ${plan.rows.length}…`);
+        if (row.alreadyOnRoster) {
+          skippedEntries += 1;
+          continue;
+        }
+
+        let playerId = row.playerId;
+        if (playerId) {
+          reusedPlayers += 1;
+        } else {
+          const created = await onCreatePlayer({ name: row.name });
+          if (!created.ok) {
+            stopWithPartialResult(row.line, created.message);
+            return;
+          }
+          playerId = created.value.id;
+          createdPlayers += 1;
+        }
+
+        const error = await onRegister(playerId, false);
+        if (error) {
+          stopWithPartialResult(row.line, error);
+          return;
+        }
+        addedEntries += 1;
+      }
+
+      setMessage(`${addedEntries} new roster entr${addedEntries === 1 ? 'y' : 'ies'} added (${createdPlayers} new players, ${reusedPlayers} existing players reused). ${skippedEntries} entries were left unchanged: ${plan.existingRegistered} registered (${plan.existingNotCheckedIn} not checked in), ${plan.existingWaitlisted} waitlisted, ${plan.existingWithdrawn} withdrawn. Check-in and payment records were preserved.`);
+      setPastedNames('');
+    } catch (error) {
+      stopWithPartialResult(activeLine, error instanceof Error ? error.message : 'The import could not be completed.');
+    } finally {
+      setProgress(null);
+      setBusy(false);
+    }
+  }
+
+  return <details className="bulk-roster-import">
+    <summary>Paste a roster list</summary>
+    <form className="add-entrant" onSubmit={(submitEvent) => { submitEvent.preventDefault(); void applyPlan(); }}>
+      <div>
+        <label htmlFor="bulk-roster-names">Player names, one per line</label>
+        <textarea
+          id="bulk-roster-names"
+          rows={5}
+          maxLength={3000}
+          value={pastedNames}
+          disabled={busy}
+          onChange={(changeEvent) => { setPastedNames(changeEvent.currentTarget.value); setMessage(null); }}
+          placeholder="Paste up to 25 names, one per line"
+          style={{ width: '100%', minHeight: 110, resize: 'vertical' }}
+        />
+      </div>
+      <p className="add-entrant-hint">Unique existing names are reused case-insensitively. Review the capacity check before adding; repeated or ambiguous names need individual handling.</p>
+      {plan?.ok && <p className="add-entrant-hint" role="status">
+        Ready to add {plan.newEntrants} entries: {plan.rows.filter((row) => !row.alreadyOnRoster && row.playerId === null).length} new player records and {plan.rows.filter((row) => !row.alreadyOnRoster && row.playerId !== null).length} existing players. Already on event: {plan.existingRegistered} registered ({plan.existingNotCheckedIn} not checked in), {plan.existingWaitlisted} waitlisted, {plan.existingWithdrawn} withdrawn. Existing check-in and payment records will stay unchanged.
+      </p>}
+      {plan?.ok && (plan.existingWaitlisted > 0 || plan.existingWithdrawn > 0 || plan.existingNotCheckedIn > 0) && <ul className="add-entrant-hint" aria-label="Existing entries that are not draw-ready">
+        {plan.rows.filter((row) => row.alreadyOnRoster && (
+          row.existingRegistrationStatus === 'waitlisted'
+          || row.existingRegistrationStatus === 'withdrawn'
+          || (row.existingRegistrationStatus === 'registered' && !row.existingCheckedIn)
+        )).map((row) => <li key={row.line}>
+          Line {row.line}, {row.name}: {row.existingRegistrationStatus === 'registered' ? 'registered, not checked in' : row.existingRegistrationStatus}.
+        </li>)}
+      </ul>}
+      {plan && !plan.ok && <p className="field-error" role="alert">{plan.message}</p>}
+      {progress && <p className="inline-status" role="status">{progress}</p>}
+      {message && <p className="inline-status" role="status">{message}</p>}
+      <button className="button button-secondary button-small" type="submit" disabled={busy || !plan?.ok}>
+        {busy ? 'Adding roster…' : 'Add pasted names'}
+      </button>
+    </form>
+  </details>;
 }

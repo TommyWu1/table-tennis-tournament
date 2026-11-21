@@ -4,12 +4,11 @@ Updated 2026-10-10. This is the checklist for the next build session; these chan
 
 ## Current starting point
 
-- The MVP is built, pushed and deployed: [shared workspace](https://table-tennis-tournament-phi.vercel.app/) and [practice demo](https://table-tennis-tournament-phi.vercel.app/?demo=1).
-- The practice demo starts with 19 new, unrated players. Existing browser rehearsals persist; do not reset them without being asked.
+- The deployed [tournament workspace](https://table-tennis-tournament-phi.vercel.app/) uses Supabase for live event records.
 - Registration, check-in, manual payment records, groups, scoring, knockout advancement, ratings and exports exist.
 - The organizer dashboard shows live table assignments, recorded start times and elapsed minutes. Its separate projector window follows scores and switches from groups to brackets.
 - Supabase is connected and its two migrations are applied. Organizer/scorekeeper Auth users and matching role profiles still need provisioning before shared team use. Confirm current account status when returning; never request passwords in chat.
-- Stack: React, TypeScript, Vite, plain CSS, optional Supabase and Vercel. Reuse it. No new framework, scheduling service or optimizer dependency is needed.
+- Stack: React, TypeScript, Vite, plain CSS, Supabase and Vercel.
 
 Read this file and the [README](README.md) before the older [requirements](docs/requirements.md) and [implementation plan](docs/implementation-plan.md). The priorities below supersede the old Bo1 defaults and the earlier decision to defer match-order suggestions.
 
@@ -49,7 +48,7 @@ Confirmed target for the next build: approximately 20 entrants, three tables, **
 - [ ] Choose group sizes and any additional placement/consolation games together. Four-player groups give everyone three group matches. Three-player groups give only two, so their entrants need a real additional match; a bye is insufficient.
 - [ ] Recalculate the guarantee and time warning for the actual checked-in count, especially 18, 19, 20 and 21 players. Do not silently retain the 20-player estimate when turnout changes.
 
-Likely files: `src/domain/groups.ts`, `src/domain/bracket.ts`, `src/domain/estimates.ts`, `src/lib/demo.ts`, `src/lib/remote.ts`, `src/pages/Groups.tsx`, `src/pages/TournamentSettings.tsx`, and relevant validation in `supabase/migrations/002_operations.sql`. Any database change must be a **new migration**, not an edit to an already applied migration.
+Likely files: `src/domain/groups.ts`, `src/domain/bracket.ts`, `src/domain/estimates.ts`, `src/lib/tournament.ts`, `src/lib/remote.ts`, `src/pages/Groups.tsx`, `src/pages/TournamentSettings.tsx`, and relevant validation in `supabase/migrations/002_operations.sql`. Add a new migration for shared database changes.
 
 ### Can this fit comfortably into 2.5 hours?
 
@@ -81,7 +80,7 @@ Check-in/setup outside the playing window should not be subtracted twice. Rest, 
 
 ## How to resume
 
-1. Confirm current Git state and pending account setup. Preserve other contributors’ edits and existing demo records.
+1. Confirm current Git state and pending account setup. Preserve other contributors’ edits and live event records.
 2. Refine the UI, implement match-order recommendations, then implement the format/guarantee and timing changes in separate focused branches or commits.
 3. Use a separate synthetic rehearsal for changes; do not experiment on live tournament records.
 4. Run build/lint and the relevant existing checks. Add focused tests for player conflicts, rest/order rules, Bo5 semifinals, byes and the three-match guarantee; avoid broad new test infrastructure.

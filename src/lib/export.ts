@@ -1,4 +1,4 @@
-import type { DemoState } from './demo';
+import type { TournamentState } from './tournament';
 
 function safeCell(value: unknown): string {
   const text = value === null || value === undefined ? '' : String(value);
@@ -50,7 +50,7 @@ export function downloadJson(filename: string, value: unknown): void {
   downloadText(filename, JSON.stringify(value, null, 2), 'application/json;charset=utf-8');
 }
 
-export function downloadRosterCsv(state: DemoState, eventId: string): void {
+export function downloadRosterCsv(state: TournamentState, eventId: string): void {
   const event = state.tournaments.find((tournament) => tournament.id === eventId);
   if (!event) throw new Error('Event not found.');
   const entries = state.entries.filter((entry) => entry.tournamentId === eventId)
@@ -81,7 +81,7 @@ export function downloadRosterCsv(state: DemoState, eventId: string): void {
   downloadCsv(`${safeEventSlug(event.name)}-roster.csv`, rows);
 }
 
-export function downloadResultsCsv(state: DemoState, eventId: string): void {
+export function downloadResultsCsv(state: TournamentState, eventId: string): void {
   const event = state.tournaments.find((tournament) => tournament.id === eventId);
   if (!event) throw new Error('Event not found.');
   const entries = new Map(state.entries.filter((entry) => entry.tournamentId === eventId).map((entry) => [entry.id, entry]));
@@ -111,34 +111,36 @@ export function downloadResultsCsv(state: DemoState, eventId: string): void {
   downloadCsv(`${safeEventSlug(event.name)}-results.csv`, rows);
 }
 
-export type WorkspaceSnapshotScope = 'local-demo' | 'current-workspace';
-
-/** Export the records currently available to this workspace, with their coverage made explicit. */
-export function downloadWorkspaceSnapshot(state: DemoState, scope: WorkspaceSnapshotScope): void {
+export function downloadWorkspaceSnapshot(state: TournamentState, eventId: string): void {
+  const event = state.tournaments.find((tournament) => tournament.id === eventId);
+  if (!event) throw new Error('Event not found.');
+  const entries = state.entries.filter((entry) => entry.tournamentId === eventId);
+  const matches = state.matches.filter((match) => match.eventId === eventId);
+  const playerIds = new Set(entries.map((entry) => entry.playerId));
+  const players = state.players.filter((player) => playerIds.has(player.id));
+  const exportedAt = new Date().toISOString();
   const snapshot = {
     format: 'table-tennis-tournament-workspace-snapshot',
     version: 1,
-    exportedAt: new Date().toISOString(),
+    exportedAt,
     scope: {
-      kind: scope,
-      description: scope === 'local-demo'
-        ? 'All records in the local demo workspace.'
-        : 'Records loaded for the current workspace; entries and matches may cover only the selected event.',
-      tournamentIds: state.tournaments.map((tournament) => tournament.id),
-      entryTournamentIds: [...new Set(state.entries.map((entry) => entry.tournamentId))],
-      matchEventIds: [...new Set(state.matches.map((match) => match.eventId))],
+      kind: 'selected-event',
+      description: 'Roster, payments and matches for the selected event.',
+      tournamentIds: [eventId],
+      entryTournamentIds: entries.length ? [eventId] : [],
+      matchEventIds: matches.length ? [eventId] : [],
       counts: {
-        players: state.players.length,
-        tournaments: state.tournaments.length,
-        entries: state.entries.length,
-        matches: state.matches.length,
+        players: players.length,
+        tournaments: 1,
+        entries: entries.length,
+        matches: matches.length,
       },
     },
-    players: state.players,
-    tournaments: state.tournaments,
-    entries: state.entries,
-    matches: state.matches,
+    players,
+    tournaments: [event],
+    entries,
+    matches,
   };
-  const day = new Date().toISOString().slice(0, 10);
-  downloadJson(`table-tennis-tournament-${scope}-snapshot-${day}.json`, snapshot);
+  const stamp = exportedAt.slice(0, 19).replaceAll(':', '-');
+  downloadJson(`${safeEventSlug(event.name)}-snapshot-${stamp}.json`, snapshot);
 }

@@ -1,19 +1,22 @@
 import * as api from './api';
 import { getSupabase } from './supabase';
 import type { EntryRow, MatchRow, PlayerRow, ProfileRow, TournamentRow } from './database.types';
-import { groupsReadyForPlayoffs, type DemoMatch, type DemoState } from './demo';
+import { groupsReadyForPlayoffs, type TournamentMatch, type TournamentState } from './tournament';
 import { buildBracket, orderQualifiers, type QualifiedEntry } from '../domain/bracket';
 import type { Entry, Experience, GameScore, GroupPlan, MutationResult, Player, Profile, Scoreboard, ScoreboardMatch, Tournament, Slot } from '../types';
 
-export interface RemoteWorkspace extends DemoState {
+export interface RemoteWorkspace extends TournamentState {
   profile: Profile;
   scoreboard?: Scoreboard;
 }
 
-export function remoteError(error: unknown): MutationResult<never> {
+export function remoteError(error: unknown): Extract<MutationResult<never>, { ok: false }> {
   const message = error instanceof Error ? error.message
     : typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
       ? error.message : 'Could not connect. Check your connection and try again.';
+  if (/failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
+    return { ok: false, code: 'network', message: 'Could not reach the tournament database. Check your connection or ask the organizer to check Supabase.' };
+  }
   const prefix = message.match(/^(forbidden|conflict|invalid|blocked):\s*/i);
   const code = prefix ? prefix[1].toLowerCase() as 'forbidden' | 'conflict' | 'invalid' | 'blocked'
     : /permission denied|not provisioned/i.test(message) ? 'forbidden' : 'network';
@@ -47,7 +50,7 @@ export function mapEntry(row: EntryRow): Entry {
     createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
-export function mapMatches(rows: MatchRow[]): DemoMatch[] {
+export function mapMatches(rows: MatchRow[]): TournamentMatch[] {
   const keys = new Map(rows.map(row => [row.id, row.match_key]));
   const slot = (entryId: string | null, feederId: string | null): Slot => {
     // Preserve feeder provenance even after its winner has advanced into this slot.
@@ -68,8 +71,9 @@ export async function getRemoteProfile(): Promise<Profile | null> {
   const { data: { session }, error: sessionError } = await client.auth.getSession();
   if (sessionError) throw sessionError;
   if (!session) return null;
-  const { data, error } = await client.from('profiles').select('*').eq('id', session.user.id).single();
-  if (error || !data) throw new Error('forbidden: Your account needs an organizer or scorekeeper profile. Ask the club administrator to set it up.');
+  const { data, error } = await client.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+  if (error) throw new Error(remoteError(error).message);
+  if (!data) throw new Error('forbidden: Your account needs an organizer or scorekeeper profile. Ask the club administrator to set it up.');
   const row: ProfileRow = data;
   return { id: row.id, displayName: row.display_name, role: row.role, createdAt: row.created_at };
 }
@@ -121,7 +125,7 @@ export interface OrganizerActions {
   updatePlayer(playerId: string, patch: Partial<PlayerInput>): Promise<MutationResult<Player>>;
   createTournament(input: { name: string; startsAt: string }): Promise<MutationResult<Tournament>>;
   updateTournament(eventId: string, patch: TournamentUpdate): Promise<MutationResult<Tournament>>;
-  registerEntry(eventId: string, playerId: string): Promise<MutationResult<Entry>>;
+  registerEntry(eventId: string, playerId: string, allowWaitlist?: boolean): Promise<MutationResult<Entry>>;
   updateEntry(entryId: string, patch: EntryUpdate): Promise<MutationResult<Entry>>;
   archivePlayer(playerId: string): Promise<MutationResult<Player>>;
   promoteWaitlist(eventId: string): Promise<MutationResult<Entry | null>>;
@@ -181,14 +185,15 @@ export const remoteActions: OrganizerActions = {
   createPlayer: input => attempt(async () => mapPlayer(unwrap(await api.createPlayer({ ...input, name: input.name.trim() })))),
   updatePlayer: (playerId, patch) => attempt(async () => mapPlayer(unwrap(await api.updatePlayer(playerId, patch)))),
   createTournament: input => attempt(async () => mapTournament(unwrap(await api.createTournament({
-    name: input.name.trim(), starts_at: new Date(input.startsAt).toISOString(),
+    name: input.name.trim(), starts_at: new Date(input.startsAt).toISOString(), registration_cap: 25,
   })))),
   updateTournament: (eventId, patch) => attempt(async () => mapTournament(unwrap(await api.updateTournament(eventId, tournamentPatch(patch))))),
-  registerEntry: (eventId, playerId) => attempt(async () => {
+  registerEntry: (eventId, playerId, allowWaitlist = true) => attempt(async () => {
     const [events, entries] = await Promise.all([api.listTournaments(), api.listEntries(eventId)]);
     const event = events.find(row => row.id === eventId);
     if (!event) throw new Error('invalid: Event not found.');
     const full = entries.filter(row => row.registration_status === 'registered').length >= event.registration_cap;
+    if (full && !allowWaitlist) throw new Error('blocked: The roster is full. Increase the registration cap and retry the import.');
     return mapEntry(unwrap(await api.addEntry({ tournament_id: eventId, player_id: playerId,
       registration_status: full ? 'waitlisted' : 'registered' })));
   }),

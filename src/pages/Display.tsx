@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { entryNames, LiveTables } from '../components/LiveTables';
-import { groupStandings, resolvedDemoMatch, type DemoMatch, type DemoState } from '../lib/demo';
+import { groupStandings, resolveMatchEntries, type TournamentMatch, type TournamentState } from '../lib/tournament';
 import type { Division, Slot, Tournament } from '../types';
 
 type DisplayPage = { kind: 'groups'; groups: number[] } | { kind: 'bracket'; division: Division; branch: number };
@@ -8,8 +8,8 @@ const stageNames = { setup: 'Check-in open', groups: 'Group stage', playoffs: 'K
 
 function groupsPerPage() { return window.innerWidth >= 1400 ? 4 : window.innerWidth >= 700 ? 2 : 1; }
 
-export function Display({ state, event, shared, error, lastRefreshed }: {
-  state: DemoState; event: Tournament; shared: boolean; error: string | null; lastRefreshed: Date | null;
+export function Display({ state, event, error, lastRefreshed }: {
+  state: TournamentState; event: Tournament; error: string | null; lastRefreshed: Date | null;
 }) {
   const [pageIndex, setPageIndex] = useState(0);
   const [rotating, setRotating] = useState(true);
@@ -53,7 +53,7 @@ export function Display({ state, event, shared, error, lastRefreshed }: {
   }
 
   return <main className="display-shell">
-    <header className="display-header"><div><p>{stageNames[event.state]}{!shared && ' · practice demo'}</p><h1>{event.name}</h1></div><time>{now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></header>
+    <header className="display-header"><div><p>{stageNames[event.state]}</p><h1>{event.name}</h1></div><time>{now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></header>
     {error && <p className="display-warning" role="status">Connection interrupted. Showing the last saved view{lastRefreshed ? ' from ' + lastRefreshed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}. Reconnecting automatically.</p>}
     <LiveTables state={state} event={event} now={now} />
     {page?.kind === 'groups' && <section className="display-stage" aria-label="Group standings">
@@ -68,7 +68,7 @@ export function Display({ state, event, shared, error, lastRefreshed }: {
     </section>}
     {page?.kind === 'bracket' && <ProjectorBracket matches={matches} names={names} division={page.division} branch={page.branch} />}
     {!page && <section className="display-empty"><h2>{event.state === 'setup' ? 'Ready for the first serve?' : stageNames[event.state]}</h2><p>{event.state === 'setup' ? 'Please check in with the organizers. Your groups will appear here when the draw starts.' : 'There are no matches to display.'}</p></section>}
-    <footer className="display-footer"><span>{shared ? 'Updates automatically every 5 seconds' : 'Follows the organizer window in this browser'}</span><div className="display-controls">
+    <footer className="display-footer"><span>Updates automatically every five seconds</span><div className="display-controls">
       {pageCount > 1 && <><button type="button" onClick={() => setPageIndex((currentIndex + pageCount - 1) % pageCount)} aria-label="Previous display page">←</button><span>Screen {currentIndex + 1}/{pageCount}</span><button type="button" onClick={() => setPageIndex((currentIndex + 1) % pageCount)} aria-label="Next display page">→</button><button type="button" onClick={() => setRotating(!rotating)}>{rotating ? 'Pause rotation' : 'Rotate every 20s'}</button></>}
       <button type="button" onClick={() => void fullscreen()}>Toggle fullscreen</button>
     </div></footer>
@@ -76,7 +76,7 @@ export function Display({ state, event, shared, error, lastRefreshed }: {
   </main>;
 }
 
-export function ProjectorBracket({ matches, names, division, branch }: { matches: DemoMatch[]; names: Map<string, string>; division: Division; branch: number }) {
+export function ProjectorBracket({ matches, names, division, branch }: { matches: TournamentMatch[]; names: Map<string, string>; division: Division; branch: number }) {
   const bracket = matches.filter((match) => match.stage === 'playoffs' && match.division === division).sort((a, b) => a.round - b.round || a.sequence - b.sequence);
   const finalRound = Math.max(...bracket.map((match) => match.round));
   const firstCount = bracket.filter((match) => match.round === 1).length;
@@ -102,7 +102,7 @@ export function ProjectorBracket({ matches, names, division, branch }: { matches
         const end = Math.floor((branch * 4 + rowCount - 1) / span) + 1;
         const roundMatches = bracket.filter((match) => match.round === round && match.sequence >= start && match.sequence <= end);
         return <div className="projector-round" key={round}><h3>{roundName(round)}</h3><div className="projector-round-matches">{roundMatches.map((match) => {
-          const resolved = resolvedDemoMatch(match, matches);
+          const resolved = resolveMatchEntries(match, matches);
           const a = match.entryAId ?? resolved.entryAId;
           const b = match.entryBId ?? resolved.entryBId;
           const winsA = match.games.filter(([left, right]) => left > right).length;

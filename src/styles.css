@@ -41,11 +41,10 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .nav-link.active { color: var(--primary-dark); }
 .nav-link.active::after { position: absolute; right: 13px; bottom: -1px; left: 13px; height: 3px; border-radius: 3px 3px 0 0; background: var(--primary); content: ""; }
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 16px; }
-.demo-badge { display: inline-flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid #d6b3a3; border-radius: 999px; color: #763d2b; background: #fff2eb; font-size: 10px; font-weight: 850; letter-spacing: .055em; white-space: nowrap; }
-.demo-badge i { width: 7px; height: 7px; border-radius: 50%; background: #ce613a; }
-.local-demo-note { margin: 16px 0 20px; padding: 10px 13px; display: flex; align-items: center; gap: 10px; border: 1px solid #edd2c2; border-radius: 9px; background: #fff8f3; color: #684a3e; font-size: 12px; }
-.local-demo-note strong { color: #8f371f; font-size: 10px; letter-spacing: .05em; }
-.local-demo-note a { margin-left: auto; color: var(--primary-dark); font-weight: 700; }
+.shared-badge { display: inline-flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid #c3d8cb; border-radius: 999px; color: #245a40; background: #edf8f0; font-size: 10px; font-weight: 850; letter-spacing: .055em; white-space: nowrap; }
+.shared-badge i { width: 7px; height: 7px; border-radius: 50%; background: #42835b; }
+.scorekeeper-note { margin: 16px 0 20px; padding: 10px 13px; display: flex; align-items: center; gap: 10px; border: 1px solid #edd2c2; border-radius: 9px; background: #fff8f3; color: #684a3e; font-size: 12px; }
+.scorekeeper-note strong { color: #8f371f; font-size: 10px; letter-spacing: .05em; }
 .app-footer { margin-top: 36px; padding-top: 14px; display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 
 .page-section { margin: 20px 0 0; padding: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 2px 4px #152b1f08; }
@@ -177,7 +176,6 @@ tbody small, .subcell { display: block; margin-top: 3px; color: var(--muted); fo
 
 /* Phone scoring keeps the match and numbers as the first thing on screen. */
 .app-scorekeeper { width: min(100% - 24px, 610px); padding-top: 8px; }.app-scorekeeper .app-header { min-height: 60px; }.app-scorekeeper .page-section { margin-top: 12px; padding: 15px; }.app-scorekeeper .section-heading h2 { font-size: 18px; }.app-scorekeeper .match-list { grid-template-columns: 1fr; }.app-scorekeeper .match-card { padding: 16px; }.app-scorekeeper .match-scoreline { margin: 17px 0; }.app-scorekeeper .match-player { min-height: 68px; }.app-scorekeeper .match-player strong { font-size: 15px; }.app-scorekeeper .game-score-row input { min-height: 52px; font-size: 22px; }.app-scorekeeper .app-footer { display: none; }
-.shared-badge { color: #245a40; border-color: #c3d8cb; background: #edf8f0; }
 .scorekeeper-list { display: grid; gap: 12px; }
 .scorekeeper-player-row { margin: 17px 0; display: grid; grid-template-columns: minmax(0,1fr) 28px minmax(0,1fr); gap: 8px; align-items: center; text-align: center; }
 .scorekeeper-player-row strong { min-height: 67px; padding: 12px; display: grid; place-items: center; overflow-wrap: anywhere; border-radius: 8px; background: var(--surface-soft); font-size: 17px; }
@@ -198,8 +196,8 @@ tbody small, .subcell { display: block; margin-top: 3px; color: var(--muted); fo
 @media (max-width: 560px) {
   .app-shell { width: calc(100% - 20px); }
   .product-lockup strong { font-size: 12px; }.product-lockup small { font-size: 10px; }
-  .demo-badge { font-size: 9px; }.reset-link { display: none; }
-  .local-demo-note { align-items: flex-start; flex-wrap: wrap; font-size: 10px; }.local-demo-note span { flex: 1 1 calc(100% - 75px); }.local-demo-note a { margin-left: 0; }
+  .shared-badge { font-size: 9px; }
+  .scorekeeper-note { align-items: flex-start; flex-wrap: wrap; font-size: 10px; }.scorekeeper-note span { flex: 1 1 calc(100% - 75px); }
   .page-section { padding: 15px 12px; }
   .section-heading { margin-bottom: 14px; }.section-heading h2 { font-size: 17px; }.section-count { font-size: 10px; }
   .event-toolbar { align-items: stretch; }.event-toolbar > label { flex: 1; }
