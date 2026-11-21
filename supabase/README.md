@@ -19,6 +19,12 @@ values ('<auth-user-uuid>', 'Organizer', 'admin');
 
 Use `scorekeeper` for phone score-entry accounts. Profiles are not self-editable, and only the admin role can use roster, payment and setup operations.
 
+## Organizer access code
+
+The **Organizer access code** form signs into a dedicated Supabase Auth account. In Authentication → Users, choose **Add user → Create new user**, use `organizer@example.com` as the email, set the access code as its password, and enable **Auto Confirm User**. Use the UUID of the account you just created to provision the `admin` profile above. The default alias is reserved for sign-in and cannot receive email. Scorekeepers use **Sign in with email and password**.
+
+Set the optional `VITE_ORGANIZER_EMAIL` public alias for a different tournament installation. Keep the code in Supabase Auth. It is never part of the deployed JavaScript or environment configuration.
+
 Copy `.env.example` to `.env.local`, then set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` from the project's API settings. The publishable key is intended for the browser; never put a service-role key in Vite or commit project credentials.
 
 The in-repo PGlite test runs the migrations with a test-only Auth shim and synthetic users. It checks a small RLS and tournament-operation flow; it does not verify permissions against a hosted Supabase project.

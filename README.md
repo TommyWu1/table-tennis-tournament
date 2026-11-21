@@ -33,6 +33,8 @@ New tournaments start with a 25-player cap, three tables, a four-hour booking an
 
 Follow [Supabase setup](supabase/README.md), create organizer and scorekeeper accounts, and copy `.env.example` to `.env.local` with your project URL and publishable key. Admins manage events and payments; scorekeepers see the active scoreboard and enter played results.
 
+Organizers can use the [access-code sign-in](supabase/README.md#organizer-access-code) once its Supabase account is set up. Team accounts can also sign in by email and password.
+
 The deployed app uses Supabase. Each team account needs an Auth user and a matching role profile before it can sign in. If the project pauses, resume it in the Supabase Dashboard and verify organizer login and a score save from a second device before relying on the service.
 
 For Vercel, use the Vite preset (`npm run build`, output `dist`) and add the same two environment variables. Shared login and device syncing require a configured Supabase project; the included local database smoke checks use a test-only Auth shim.
