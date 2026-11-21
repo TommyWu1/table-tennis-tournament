@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
+import { createGroupDraw, suggestGroups } from '../src/domain/groups';
 import schemaSql from '../supabase/migrations/001_schema.sql?raw';
 import operationsSql from '../supabase/migrations/002_operations.sql?raw';
 
@@ -187,5 +188,72 @@ describe('Supabase tournament operations in PGlite', () => {
     );
     expect(ratingsAfterRetry).toEqual(ratingsAfterFirst);
     expect(ratingsAfterRetry.map((row) => row.rated_match_count)).toEqual([5, 4, 5, 4]);
+  });
+
+  it('recomputes a 25-entry draw from 23 check-ins and excludes registered no-shows in SQL', async () => {
+    const additional = Array.from({ length: 21 }, (_, index) => {
+      const suffix = String(index + 5).padStart(12, '0');
+      return {
+        playerId: `30000000-0000-4000-8000-${suffix}`,
+        entryId: `40000000-0000-4000-8000-${suffix}`,
+        checkedIn: index < 19,
+      };
+    });
+    for (const [index, entrant] of additional.entries()) {
+      await db.query('insert into public.players (id, name) values ($1, $2)', [entrant.playerId, `Test entrant ${index + 5}`]);
+      await db.query(
+        'insert into public.entries (id, tournament_id, player_id, checked_in) values ($1, $2, $3, $4)',
+        [entrant.entryId, eventId, entrant.playerId, entrant.checkedIn],
+      );
+    }
+
+    const { rows: roster } = await db.query<{ id: string; checked_in: boolean; registration_status: string }>(
+      'select id, checked_in, registration_status from public.entries where tournament_id = $1 order by id', [eventId],
+    );
+    expect(roster).toHaveLength(25);
+    expect(roster.every((entry) => entry.registration_status === 'registered')).toBe(true);
+    expect(roster.filter((entry) => entry.registration_status === 'registered' && entry.checked_in)).toHaveLength(23);
+
+    const checkedInIds = roster
+      .filter((entry) => entry.registration_status === 'registered' && entry.checked_in)
+      .map((entry) => entry.id);
+    const option = suggestGroups(checkedInIds.length)[0];
+    expect(option.sizes).toEqual([5, 5, 5, 4, 4]);
+    expect(option.matchCount).toBe(42);
+    const plans = createGroupDraw(checkedInIds.map((entryId, index) => ({
+      entryId,
+      playerId: entryId,
+      name: `Test entrant ${index + 1}`,
+      seedValue: 1000 - index,
+    })), option.sizes, 'balanced', 51);
+
+    await admin();
+    const { rows: [event] } = await db.query<{ revision: number }>(
+      'select revision::int from public.tournaments where id = $1', [eventId],
+    );
+    const forgedPlans = plans.map((group) => ({ ...group, entryIds: [...group.entryIds] }));
+    forgedPlans[0].entryIds[0] = roster.find((entry) => !entry.checked_in)!.id;
+    await expect(db.query(
+      `select public.save_groups($1::uuid, $2::bigint, $3::jsonb, 51, 'balanced')`,
+      [eventId, event.revision, JSON.stringify(forgedPlans)],
+    )).rejects.toThrow(/groups must contain checked-in registered entrants/i);
+    await db.query(
+      `select public.save_groups($1::uuid, $2::bigint, $3::jsonb, 51, 'balanced')`,
+      [eventId, event.revision, JSON.stringify(plans)],
+    );
+
+    const { rows: [groupCount] } = await db.query<{ count: number }>(
+      'select count(*)::int as count from public.entries where tournament_id = $1 and group_index is not null', [eventId],
+    );
+    const { rows: [matchCount] } = await db.query<{ count: number }>(
+      "select count(*)::int as count from public.matches where tournament_id = $1 and stage = 'groups'", [eventId],
+    );
+    const { rows: noShows } = await db.query<{ id: string; group_index: number | null }>(
+      'select id, group_index from public.entries where tournament_id = $1 and checked_in = false', [eventId],
+    );
+    expect(groupCount.count).toBe(23);
+    expect(matchCount.count).toBe(42);
+    expect(noShows).toHaveLength(2);
+    expect(noShows.every((entry) => entry.group_index === null)).toBe(true);
   });
 });
