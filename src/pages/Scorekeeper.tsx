@@ -15,8 +15,8 @@ export function Scorekeeper({ scoreboard, onSave, lastRefreshed }: ScorekeeperPr
   const matches = scoreboard.matches.filter((match) => (match.ready && (match.state === 'pending' || match.state === 'active')) || expanded === match.id)
     .sort((a, b) => Number(b.state === 'active') - Number(a.state === 'active') || (a.sequence ?? 0) - (b.sequence ?? 0));
   return <main className="app-shell app-scorekeeper">
-    <header className="app-header"><a className="product-lockup" href="/" aria-label="Table Tennis Tournament Manager"><span className="brand-mark" aria-hidden="true">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>Scorekeeper</small></span></a><span className="demo-badge shared-badge"><i aria-hidden="true" />SHARED EVENT</span></header>
-    <div className="local-demo-note"><strong>{scoreboard.stage.toUpperCase()}</strong><span>Results are shared with the organizer. You can enter played scores only.</span></div>
+    <header className="app-header"><a className="product-lockup" href="/" aria-label="Table Tennis Tournament Manager"><span className="brand-mark" aria-hidden="true">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>Scorekeeper</small></span></a><span className="shared-badge"><i aria-hidden="true" />SHARED EVENT</span></header>
+    <div className="scorekeeper-note"><strong>{scoreboard.stage.toUpperCase()}</strong><span>Results are shared with the organizer. You can enter played scores only.</span></div>
     <section className="page-section" aria-labelledby="scorekeeper-heading">
       <div className="section-heading"><div><h1 id="scorekeeper-heading">{scoreboard.eventName}</h1><p>{matches.length} ready to score · refreshes every five seconds</p></div><span className={'status-pill status-' + scoreboard.stage}>{scoreboard.stage}</span></div>
       {matches.length === 0 && <div className="empty-panel"><strong>No ready matches</strong><p>Ask the organizer to start a match or finish the draw.</p></div>}

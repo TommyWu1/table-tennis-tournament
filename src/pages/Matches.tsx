@@ -1,19 +1,19 @@
 import { useState } from 'react';
-import { resolvedDemoMatch, type DemoMatch, type DemoState } from '../lib/demo';
+import { resolveMatchEntries, type TournamentMatch, type TournamentState } from '../lib/tournament';
 import { ScoreForm } from '../components/ScoreForm';
 import type { GameScore, Tournament } from '../types';
 
 interface MatchesProps {
-  state: DemoState;
+  state: TournamentState;
   event: Tournament;
   onStart: (matchId: string, tableNumber: number, version: number) => Promise<string | null>;
-  onScore: (match: DemoMatch, games: GameScore[], correcting: boolean, expectedVersion: number) => Promise<string | null>;
-  onResolve: (match: DemoMatch, kind: 'walkover' | 'void', winnerId: string | null, reason: string) => Promise<string | null>;
+  onScore: (match: TournamentMatch, games: GameScore[], correcting: boolean, expectedVersion: number) => Promise<string | null>;
+  onResolve: (match: TournamentMatch, kind: 'walkover' | 'void', winnerId: string | null, reason: string) => Promise<string | null>;
   onClear: (matchId: string, version: number) => Promise<string | null>;
   readOnly?: boolean;
 }
 
-const stateLabel: Record<DemoMatch['state'], string> = {
+const stateLabel: Record<TournamentMatch['state'], string> = {
   pending: 'Ready', active: 'Playing', completed: 'Saved', bye: 'Bye', void: 'Void',
 };
 
@@ -28,7 +28,7 @@ export function Matches({ state, event, onStart, onScore, onResolve, onClear, re
   const [savingId, setSavingId] = useState<string | null>(null);
   const name = (entryId: string | null) => entryId ? entries.find((entry) => entry.id === entryId)?.player?.name ?? 'Unknown player' : 'Awaiting player';
   const matchInfo = matches.map((match) => {
-    const resolved = resolvedDemoMatch(match, matches);
+    const resolved = resolveMatchEntries(match, matches);
     const aId = match.entryAId ?? resolved.entryAId;
     const bId = match.entryBId ?? resolved.entryBId;
     const availableEntries = [aId, bId].filter((id): id is string => Boolean(id)
@@ -36,7 +36,7 @@ export function Matches({ state, event, onStart, onScore, onResolve, onClear, re
     return { match, aId, bId, playerA: name(aId), playerB: name(bId), resolved: resolved.resolved,
       availableEntries, playable: resolved.resolved && Boolean(aId && bId) && availableEntries.length === 2 };
   }).sort((left, right) => {
-    const rank = (match: DemoMatch) => match.state === 'active' ? 0 : match.state === 'pending' ? 1 : 2;
+    const rank = (match: TournamentMatch) => match.state === 'active' ? 0 : match.state === 'pending' ? 1 : 2;
     return rank(left.match) - rank(right.match) || left.match.stage.localeCompare(right.match.stage) || left.match.round - right.match.round || left.match.sequence - right.match.sequence;
   });
   const tableCount = event.tableCount;

@@ -8,31 +8,11 @@ import { Scorekeeper } from './pages/Scorekeeper';
 import { TournamentSettings } from './pages/TournamentSettings';
 import { LiveTables } from './components/LiveTables';
 import { Display } from './pages/Display';
+import { downloadWorkspaceSnapshot } from './lib/export';
 import {
-  archiveDemoPlayer,
-  cancelDemoTournament,
-  createDemoPlayer,
-  createDemoPlayoffs,
-  createDemoTournament,
-  finishDemoTournament,
   getEntries,
-  getTournament,
-  loadDemoState,
-  promoteDemoWaitlist,
-  registerDemoEntry,
-  resetDemoState,
-  saveDemoScore,
-  saveDemoState,
-  saveDemoUnplayedResult,
-  startDemoGroups,
-  startDemoMatch,
-  updateDemoEntry,
-  updateDemoTournament,
-  clearDemoResult,
-  DEMO_STORAGE_KEY,
-  type DemoMatch,
-  type DemoState,
-} from './lib/demo';
+  type TournamentMatch,
+} from './lib/tournament';
 import { isSupabaseConfigured } from './lib/supabase';
 import {
   getRemoteProfile,
@@ -43,13 +23,11 @@ import {
   signOut,
   type RemoteWorkspace,
 } from './lib/remote';
-import type { Entry, GameScore, GroupPlan, MutationResult, Profile, Tournament } from './types';
+import type { Entry, GameScore, GroupPlan, MutationResult, Player, Profile, Tournament } from './types';
 
 type Section = 'Tournament' | 'Players' | 'Results';
 type TournamentTab = 'Players & payments' | 'Matches' | 'Groups & bracket';
-const demoRequested = new URLSearchParams(window.location.search).get('demo') === '1';
-const remoteMode = isSupabaseConfigured() && !demoRequested;
-const localPhoneView = new URLSearchParams(window.location.search).get('view') === 'scorekeeper';
+const remoteMode = isSupabaseConfigured();
 const displayRequested = new URLSearchParams(window.location.search).get('view') === 'display';
 const displayEventId = displayRequested ? new URLSearchParams(window.location.search).get('event') ?? '' : '';
 const SCORE_DRAFT_PREFIX = 'tttm:score-draft:';
@@ -60,20 +38,20 @@ function withPlayers(workspace: RemoteWorkspace): RemoteWorkspace {
 }
 
 export default function App() {
-  const [localState, setLocalState] = useState<DemoState | null>(() => remoteMode ? null : loadDemoState());
   const [remoteWorkspace, setRemoteWorkspace] = useState<RemoteWorkspace | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(remoteMode);
   const [remoteFailure, setRemoteFailure] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState(displayEventId);
+  const [loadedEventId, setLoadedEventId] = useState('');
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [section, setSection] = useState<Section>('Tournament');
-  const [tournamentTab, setTournamentTab] = useState<TournamentTab>(localPhoneView ? 'Matches' : 'Players & payments');
+  const [tournamentTab, setTournamentTab] = useState<TournamentTab>('Players & payments');
   const [notice, setNotice] = useState<string | null>(null);
   const refreshLock = useRef(false);
   const profileId = profile?.id;
   const profileRole = profile?.role;
-  const state = remoteMode ? remoteWorkspace : localState;
+  const state = remoteWorkspace;
   const eventId = selectedEventId || state?.tournaments[0]?.id || '';
   const event = state?.tournaments.find((tournament) => tournament.id === eventId) ?? (displayEventId ? undefined : state?.tournaments[0]);
   const entries = state && event ? getEntries(state, event.id) : [];
@@ -87,17 +65,20 @@ export default function App() {
       if (!workspace) {
         setProfile(null);
         setRemoteWorkspace(null);
+        setLoadedEventId('');
         setRemoteFailure(null);
       } else {
         const normalized = withPlayers(workspace);
+        const preferred = normalized.tournaments.find((item) => item.state === 'groups' || item.state === 'playoffs') ?? normalized.tournaments[0];
+        const actualEventId = normalized.scoreboard?.eventId
+          ?? (requestedEventId && normalized.tournaments.some((item) => item.id === requestedEventId) ? requestedEventId : preferred?.id)
+          ?? '';
         setProfile(normalized.profile);
         setRemoteWorkspace(normalized);
+        setLoadedEventId(actualEventId);
         setRemoteFailure(null);
         if (normalized.scoreboard) setSelectedEventId(normalized.scoreboard.eventId);
-        else if (!displayEventId && (!targetEventId || !normalized.tournaments.some((item) => item.id === targetEventId))) {
-          const preferred = normalized.tournaments.find((item) => item.state === 'groups' || item.state === 'playoffs') ?? normalized.tournaments[0];
-          if (preferred) setSelectedEventId(preferred.id);
-        }
+        else if (!displayEventId && actualEventId && (!targetEventId || !normalized.tournaments.some((item) => item.id === targetEventId))) setSelectedEventId(actualEventId);
       }
       setLastRefreshed(new Date());
     } catch (error) {
@@ -124,17 +105,6 @@ export default function App() {
     })();
     return () => { active = false; };
   }, [refreshRemote]);
-
-  useEffect(() => {
-    if (remoteMode) return;
-    const sync = (event: StorageEvent) => {
-      if (event.storageArea === localStorage && (event.key === DEMO_STORAGE_KEY || event.key === null)) setLocalState(loadDemoState());
-    };
-    const refresh = () => setLocalState(loadDemoState());
-    window.addEventListener('storage', sync);
-    window.addEventListener('focus', refresh);
-    return () => { window.removeEventListener('storage', sync); window.removeEventListener('focus', refresh); };
-  }, []);
 
   useEffect(() => {
     if (!remoteMode || !profileId || profileRole === 'scorekeeper' || !selectedEventId) return;
@@ -169,129 +139,122 @@ export default function App() {
     }
   }
 
-  async function mutateLocal<T>(action: (next: DemoState) => MutationResult<T>): Promise<{ error: string | null; value?: T }> {
-    if (!localState) return { error: 'Local demo state is unavailable.' };
-    const next = structuredClone(localState);
-    const result = action(next);
-    if (!result.ok) { setNotice(result.message); return { error: result.message }; }
-    saveDemoState(next);
-    setLocalState(next);
-    setNotice(null);
-    return { error: null, value: result.value };
-  }
-
   async function createEvent(input: { name: string; startsAt: string }): Promise<string | null> {
-    if (remoteMode) {
-      const result = await runRemote(remoteActions.createTournament(input), '');
-      if (result.value) setSelectedEventId(result.value.id);
-      return result.error;
-    }
-    if (!localState) return 'Demo is not ready.';
-    const next = structuredClone(localState);
-    const result = createDemoTournament(next, input);
-    if (!result.ok) return result.message;
-    saveDemoState(next); setLocalState(next); setSelectedEventId(result.value.id); setSection('Tournament'); setTournamentTab('Players & payments');
-    return null;
+    const result = await runRemote(remoteActions.createTournament(input), '');
+    if (result.value) setSelectedEventId(result.value.id);
+    return result.error;
   }
 
   async function updateEvent(targetId: string, patch: Partial<Tournament>): Promise<string | null> {
-    if (remoteMode) return (await runRemote(remoteActions.updateTournament(targetId, patch), targetId)).error;
-    return (await mutateLocal((next) => updateDemoTournament(next, targetId, patch))).error;
+    return (await runRemote(remoteActions.updateTournament(targetId, patch), targetId)).error;
   }
 
   async function updateEntry(entryId: string, patch: Partial<Entry>): Promise<string | null> {
-    if (remoteMode) {
-      const allowed = {
-        checkedIn: patch.checkedIn, paid: patch.paid, paymentMethod: patch.paymentMethod,
-        amountPaidCents: patch.amountPaidCents, discountCents: patch.discountCents,
-        paymentNote: patch.paymentNote, registrationStatus: patch.registrationStatus,
-      };
-      return (await runRemote(remoteActions.updateEntry(entryId, allowed))).error;
+    const allowed = {
+      checkedIn: patch.checkedIn, paid: patch.paid, paymentMethod: patch.paymentMethod,
+      amountPaidCents: patch.amountPaidCents, discountCents: patch.discountCents,
+      paymentNote: patch.paymentNote, registrationStatus: patch.registrationStatus,
+    };
+    return (await runRemote(remoteActions.updateEntry(entryId, allowed))).error;
+  }
+
+  async function createPlayerRecord(input: { name: string }): Promise<MutationResult<Player>> {
+    const result = await remoteActions.createPlayer(input);
+    if (!result.ok) {
+      if (result.code === 'network') {
+        try {
+          const latest = await loadRemoteWorkspace(eventId);
+          const loaded = latest ? withPlayers(latest) : null;
+          const normalizeName = (value: string) => value.normalize('NFKC').trim().toLocaleLowerCase();
+          const matches = loaded?.players.filter((player) => normalizeName(player.name) === normalizeName(input.name)) ?? [];
+          if (loaded) {
+            setRemoteWorkspace(loaded);
+            setLoadedEventId(eventId);
+          }
+          if (matches.length === 1) {
+            setNotice(null);
+            return { ok: true, value: matches[0] };
+          }
+        } catch {
+          // Keep the original mutation error; the retry can check the directory again.
+        }
+      }
+      setNotice(result.message);
+      if (result.code === 'conflict') await refreshRemote(eventId);
+      return result;
     }
-    return (await mutateLocal((next) => updateDemoEntry(next, entryId, patch))).error;
+    await refreshRemote(eventId);
+    setNotice(null);
+    return result;
   }
 
   async function createPlayer(input: { name: string; label?: string | null; experience?: 'unknown' | 'beginner' | 'casual' | 'club' | 'varsity' }): Promise<string | null> {
-    if (remoteMode) return (await runRemote(remoteActions.createPlayer(input))).error;
-    return (await mutateLocal((next) => createDemoPlayer(next, input))).error;
+    const result = await remoteActions.createPlayer(input);
+    if (!result.ok) { setNotice(result.message); return result.message; }
+    await refreshRemote(eventId);
+    setNotice(null);
+    return null;
   }
 
   async function updatePlayer(playerId: string, patch: { name?: string; label?: string | null; experience?: 'unknown' | 'beginner' | 'casual' | 'club' | 'varsity' }): Promise<string | null> {
-    if (remoteMode) return (await runRemote(remoteActions.updatePlayer(playerId, patch))).error;
-    return (await mutateLocal((next) => updateDemoPlayer(next, playerId, patch))).error;
+    return (await runRemote(remoteActions.updatePlayer(playerId, patch))).error;
   }
 
   async function archivePlayer(playerId: string): Promise<string | null> {
-    if (remoteMode) return (await runRemote(remoteActions.archivePlayer(playerId))).error;
-    return (await mutateLocal((next) => archiveDemoPlayer(next, playerId))).error;
+    return (await runRemote(remoteActions.archivePlayer(playerId))).error;
   }
 
-  async function registerEntry(playerId: string): Promise<string | null> {
+  async function registerEntry(playerId: string, allowWaitlist = true): Promise<string | null> {
     if (!event) return 'Create an event first.';
-    if (remoteMode) return (await runRemote(remoteActions.registerEntry(event.id, playerId))).error;
-    return (await mutateLocal((next) => registerDemoEntry(next, event.id, playerId))).error;
+    return (await runRemote(remoteActions.registerEntry(event.id, playerId, allowWaitlist))).error;
   }
 
   async function promoteWaitlist(): Promise<string | null> {
     if (!event) return 'Create an event first.';
-    if (remoteMode) return (await runRemote(remoteActions.promoteWaitlist(event.id))).error;
-    return (await mutateLocal((next) => promoteDemoWaitlist(next, event.id))).error;
+    return (await runRemote(remoteActions.promoteWaitlist(event.id))).error;
   }
 
   async function startGroups(plans: GroupPlan[], seed: number, mode: 'balanced' | 'random'): Promise<string | null> {
     if (!event || !state) return 'Create an event first.';
-    if (remoteMode) return (await runRemote(remoteActions.startGroups(event.id, event.revision, plans, seed, mode))).error;
-    return (await mutateLocal((next) => startDemoGroups(next, event.id, event.revision, plans, seed, mode))).error;
+    return (await runRemote(remoteActions.startGroups(event.id, event.revision, plans, seed, mode))).error;
   }
 
   async function createPlayoffs(seed: number): Promise<string | null> {
     if (!event || !state) return 'Create an event first.';
-    if (remoteMode) return (await runRemote(remoteActions.createPlayoffs(event.id, event.revision, seed))).error;
-    return (await mutateLocal((next) => createDemoPlayoffs(next, event.id, event.revision, seed))).error;
+    return (await runRemote(remoteActions.createPlayoffs(event.id, event.revision, seed))).error;
   }
 
   async function startMatch(matchId: string, table: number, version: number): Promise<string | null> {
-    if (remoteMode) return (await runRemote(remoteActions.startMatch(matchId, table, version))).error;
-    return (await mutateLocal((next) => startDemoMatch(next, matchId, table, version))).error;
+    return (await runRemote(remoteActions.startMatch(matchId, table, version))).error;
   }
 
-  async function saveScore(match: DemoMatch, games: GameScore[], correcting: boolean, expectedVersion: number): Promise<string | null> {
-    if (remoteMode) {
-      const result = await runRemote(remoteActions.saveScore(match.id, expectedVersion, games));
-      if (!result.error) sessionStorage.removeItem(SCORE_DRAFT_PREFIX + match.id + ':' + expectedVersion);
-      return result.error;
-    }
-    const result = await mutateLocal((next) => saveDemoScore(next, match.id, expectedVersion, games, correcting));
+  async function saveScore(match: TournamentMatch, games: GameScore[], _correcting: boolean, expectedVersion: number): Promise<string | null> {
+    const result = await runRemote(remoteActions.saveScore(match.id, expectedVersion, games));
     if (!result.error) sessionStorage.removeItem(SCORE_DRAFT_PREFIX + match.id + ':' + expectedVersion);
     return result.error;
   }
 
-  async function resolveMatch(match: DemoMatch, kind: 'walkover' | 'void', winner: string | null, reason: string): Promise<string | null> {
-    if (remoteMode) return (await runRemote(remoteActions.resolveMatch(match.id, match.version, kind, winner, reason))).error;
-    return (await mutateLocal((next) => saveDemoUnplayedResult(next, match.id, match.version, kind, winner, reason))).error;
+  async function resolveMatch(match: TournamentMatch, kind: 'walkover' | 'void', winner: string | null, reason: string): Promise<string | null> {
+    return (await runRemote(remoteActions.resolveMatch(match.id, match.version, kind, winner, reason))).error;
   }
 
   async function clearResult(matchId: string, version: number): Promise<string | null> {
-    if (remoteMode) return (await runRemote(remoteActions.clearResult(matchId, version))).error;
-    return (await mutateLocal((next) => clearDemoResult(next, matchId, version))).error;
+    return (await runRemote(remoteActions.clearResult(matchId, version))).error;
   }
 
   async function resetPlayoffs(): Promise<string | null> {
     if (!event) return 'Create an event first.';
-    if (remoteMode) return (await runRemote(remoteActions.resetPlayoffs(event.id, event.revision))).error;
-    return (await mutateLocal((next) => resetLocalPlayoffs(next, event.id))).error;
+    return (await runRemote(remoteActions.resetPlayoffs(event.id, event.revision))).error;
   }
 
   async function finishTournament(): Promise<string | null> {
     if (!event) return 'Create an event first.';
-    if (remoteMode) return (await runRemote(remoteActions.finishTournament(event.id, event.revision))).error;
-    return (await mutateLocal((next) => finishDemoTournament(next, event.id, event.revision))).error;
+    return (await runRemote(remoteActions.finishTournament(event.id, event.revision))).error;
   }
 
   async function cancelTournament(): Promise<string | null> {
     if (!event) return 'Create an event first.';
-    if (remoteMode) return (await runRemote(remoteActions.cancelTournament(event.id, event.revision))).error;
-    return (await mutateLocal((next) => cancelDemoTournament(next, event.id, event.revision))).error;
+    return (await runRemote(remoteActions.cancelTournament(event.id, event.revision))).error;
   }
 
   async function signOutUser() {
@@ -301,7 +264,7 @@ export default function App() {
       const key = sessionStorage.key(index);
       if (key?.startsWith(SCORE_DRAFT_PREFIX)) sessionStorage.removeItem(key);
     }
-    setProfile(null); setRemoteWorkspace(null); setSelectedEventId(''); setRemoteFailure(null);
+    setProfile(null); setRemoteWorkspace(null); setSelectedEventId(''); setLoadedEventId(''); setRemoteFailure(null);
   }
 
   async function saveScorekeeper(match: import('./types').ScoreboardMatch, games: GameScore[], expectedVersion: number) {
@@ -324,72 +287,50 @@ export default function App() {
     return null;
   }
 
-  async function resetLocalDemo() {
-    const next = resetDemoState(); setLocalState(next); setSection('Tournament'); setTournamentTab('Players & payments');
-  }
-
-  if (remoteMode && remoteLoading && !profile) return <LoadingScreen />;
-  if (remoteMode && !profile) return <SignInScreen onSignIn={login} error={remoteFailure} />;
-  if (displayRequested && remoteMode && profile?.role === 'scorekeeper') return <main className="display-shell"><h1>Organizer account required</h1><p>Open the projector view from the organizer’s browser. Scorekeeper accounts use the phone score-entry view.</p></main>;
-  if (remoteMode && profile?.role === 'scorekeeper') {
+  if (!remoteMode) return <MissingConfiguration />;
+  if (remoteLoading && !profile && !remoteFailure) return <LoadingScreen />;
+  if (remoteFailure && !profile) return <ConnectionError message={remoteFailure} onRetry={() => void refreshRemote()} />;
+  if (!profile) return <SignInScreen onSignIn={login} error={remoteFailure} />;
+  if (displayRequested && profile.role === 'scorekeeper') return <main className="display-shell"><h1>Organizer account required</h1><p>Open the projector view from the organizer’s browser. Scorekeeper accounts use the phone score-entry view.</p></main>;
+  if (profile.role === 'scorekeeper') {
     if (remoteFailure && !remoteWorkspace?.scoreboard) return <ConnectionError message={remoteFailure} onRetry={() => void refreshRemote()} />;
     if (!remoteWorkspace?.scoreboard) return <LoadingScreen message="Looking for the active event…" />;
     return <Scorekeeper scoreboard={remoteWorkspace.scoreboard} onSave={saveScorekeeper} lastRefreshed={lastRefreshed} />;
   }
-  if (remoteMode && remoteFailure && !remoteWorkspace) return <ConnectionError message={remoteFailure} onRetry={() => void refreshRemote()} />;
+  if (remoteFailure && !remoteWorkspace) return <ConnectionError message={remoteFailure} onRetry={() => void refreshRemote()} />;
   if (!state) return <LoadingScreen />;
   if (displayRequested && !event) return <main className="display-shell"><h1>Tournament unavailable</h1><p>Open the projector view again from the tournament you want to display.</p></main>;
-  if (!event && remoteMode) return <FirstEvent onCreate={createEvent} onSignOut={signOutUser} profile={profile} />;
-  if (!event) return <main className="app-shell"><p className="field-error">No event is available.</p><button className="button button-primary" type="button" onClick={() => void resetLocalDemo()}>Reset local demo</button></main>;
-  if (displayRequested) return <Display key={event.id + '-' + event.state} state={state} event={event} shared={remoteMode} error={remoteFailure} lastRefreshed={lastRefreshed} />;
+  if (!event) return <FirstEvent onCreate={createEvent} onSignOut={signOutUser} profile={profile} />;
+  if (loadedEventId !== event.id) return remoteFailure
+    ? <ConnectionError message={remoteFailure} onRetry={() => void refreshRemote(event.id)} />
+    : <LoadingScreen message={`Loading ${event.name}…`} />;
+  if (displayRequested) return <Display key={event.id + '-' + event.state} state={state} event={event} error={remoteFailure} lastRefreshed={lastRefreshed} />;
 
   const displayParams = new URLSearchParams({ view: 'display', event: event.id });
-  if (!remoteMode) displayParams.set('demo', '1');
 
   return <main className="app-shell">
     <header className="app-header">
-      <a className="product-lockup" href={demoRequested ? '/?demo=1' : '/'} aria-label="Table Tennis Tournament Manager home"><span className="brand-mark" aria-hidden="true">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>{remoteMode ? profile?.displayName : 'Varsity tournament desk'}</small></span></a>
+      <a className="product-lockup" href="/" aria-label="Table Tennis Tournament Manager home"><span className="brand-mark" aria-hidden="true">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>{profile.displayName}</small></span></a>
       <nav className="primary-nav" aria-label="Main navigation">{(['Tournament', 'Players', 'Results'] as const).map((item) => <button type="button" key={item} className={section === item ? 'nav-link active' : 'nav-link'} onClick={() => setSection(item)}>{item}</button>)}</nav>
-      <div className="header-actions">{remoteMode ? <><span className="shared-badge demo-badge"><i aria-hidden="true" />SUPABASE SHARED</span><button className="text-button reset-link" type="button" onClick={() => void signOutUser()}>Sign out</button></> : <><span className="demo-badge"><i aria-hidden="true" />LOCAL DEMO</span><button className="text-button reset-link" type="button" onClick={() => { if (window.confirm('Reset all local demo changes and restore the sample event?')) void resetLocalDemo(); }}>Reset demo</button></>}</div>
+      <div className="header-actions"><span className="shared-badge"><i aria-hidden="true" />SHARED WORKSPACE</span><button className="text-button reset-link" type="button" onClick={() => void signOutUser()}>Sign out</button></div>
     </header>
-    {!remoteMode && <div className="local-demo-note"><strong>PRACTICE DEMO</strong><span>19 new, unrated players. Check them in, record payments, then start groups. Changes stay in this browser.</span>{isSupabaseConfigured() && <a href="/">Shared workspace</a>}{localPhoneView && <a href="/?demo=1" aria-label="Open organizer view">Organizer view</a>}</div>}
     {remoteFailure && <p className="inline-status" role="status">Could not refresh the shared event: {remoteFailure}</p>}
     {notice && <p className="inline-status" role="status">{notice}</p>}
     {section === 'Tournament' && <>
       <section className="live-summary" aria-labelledby="live-heading">
-        <div className="section-heading"><div><h2 id="live-heading">Live tables</h2><p>{event.name} · table assignments appear when you start a match.</p></div><div className="action-row"><a className="button button-secondary" href={'/?' + displayParams.toString()} target="_blank" rel="noopener noreferrer">Open projector view ↗</a><button type="button" className="button button-secondary" onClick={() => setTournamentTab('Matches')}>Manage matches</button></div></div>
+        <div className="section-heading"><div><h2 id="live-heading">Live tables</h2><p>{event.name} · table assignments appear when you start a match.</p></div><div className="action-row"><button className="button button-secondary" type="button" onClick={() => downloadWorkspaceSnapshot(state, event.id)}>Export event snapshot</button><a className="button button-secondary" href={'/?' + displayParams.toString()} target="_blank" rel="noopener noreferrer">Open projector view ↗</a><button type="button" className="button button-secondary" onClick={() => setTournamentTab('Matches')}>Manage matches</button></div></div>
         <LiveTables state={state} event={event} />
       </section>
-      <TournamentSettings key={event.id + '-' + event.updatedAt} tournaments={state.tournaments} selected={event} onSelect={(id) => { setSelectedEventId(id); if (remoteMode) void refreshRemote(id); }} onCreate={createEvent} onSave={updateEvent} onCancel={cancelTournament} onFinish={finishTournament} readOnly={false} />
+      <TournamentSettings key={event.id + '-' + event.updatedAt} tournaments={state.tournaments} selected={event} onSelect={(id) => { setSelectedEventId(id); void refreshRemote(id); }} onCreate={createEvent} onSave={updateEvent} onCancel={cancelTournament} onFinish={finishTournament} readOnly={false} />
       <nav className="tournament-tabs" aria-label="Tournament sections">{(['Players & payments', 'Matches', 'Groups & bracket'] as const).map((tab) => <button key={tab} type="button" className={tournamentTab === tab ? 'tournament-tab active' : 'tournament-tab'} onClick={() => setTournamentTab(tab)}>{tab}</button>)}</nav>
       {tournamentTab === 'Matches' && <Matches state={state} event={event} onStart={startMatch} onScore={saveScore} onResolve={resolveMatch} onClear={clearResult} />}
-      {tournamentTab === 'Players & payments' && <Roster state={state} event={event} entries={entries} players={state.players} onRegister={registerEntry} onUpdateEntry={updateEntry} onPromoteWaitlist={promoteWaitlist} />}
+      {tournamentTab === 'Players & payments' && <Roster state={state} event={event} entries={entries} players={state.players} onRegister={registerEntry} onCreatePlayer={createPlayerRecord} onUpdateEntry={updateEntry} onPromoteWaitlist={promoteWaitlist} />}
       {tournamentTab === 'Groups & bracket' && <Groups state={state} event={event} onStart={startGroups} onPlayoffs={createPlayoffs} onRecordLots={async (groupIndex, entryIds) => updateEvent(event.id, { lotOrders: { ...event.lotOrders, [String(groupIndex)]: entryIds } })} onResetPlayoffs={resetPlayoffs} />}
     </>}
     {section === 'Players' && <Players players={state.players} onCreate={createPlayer} onUpdate={updatePlayer} onArchive={archivePlayer} />}
-    {section === 'Results' && <Results state={state} tournaments={state.tournaments} selectedEventId={event.id} remoteWorkspace={remoteMode} onSelectEvent={(id) => { setSelectedEventId(id); if (remoteMode) void refreshRemote(id); }} />}
-    <footer className="app-footer"><span>Table Tennis Tournament Manager</span><span>{remoteMode ? 'Shared event · automatic refresh every five seconds' : 'Scores saved locally for this demo'}</span></footer>
+    {section === 'Results' && <Results state={state} tournaments={state.tournaments} selectedEventId={event.id} onSelectEvent={(id) => { setSelectedEventId(id); void refreshRemote(id); }} />}
+    <footer className="app-footer"><span>Table Tennis Tournament Manager</span><span>Shared event · automatic refresh every five seconds</span></footer>
   </main>;
-}
-
-function resetLocalPlayoffs(state: DemoState, tournamentId: string): MutationResult<{ revision: number }> {
-  const tournament = getTournament(state, tournamentId);
-  if (!tournament || tournament.state !== 'playoffs') return { ok: false, code: 'blocked', message: 'This event has no active playoff bracket.' };
-  const playoffMatches = state.matches.filter((match) => match.eventId === tournamentId && match.stage === 'playoffs');
-  if (playoffMatches.some((match) => match.state === 'active')) return { ok: false, code: 'blocked', message: 'Finish or clear active playoff matches before resetting.' };
-  state.matches = state.matches.filter((match) => !(match.eventId === tournamentId && match.stage === 'playoffs'));
-  for (const entry of state.entries.filter((candidate) => candidate.tournamentId === tournamentId)) entry.seedPosition = null;
-  tournament.state = 'groups'; tournament.revision += 1; tournament.updatedAt = new Date().toISOString();
-  return { ok: true, value: { revision: tournament.revision } };
-}
-
-function updateDemoPlayer(state: DemoState, playerId: string, patch: Partial<Pick<import('./types').Player, 'name' | 'label' | 'experience'>>) {
-  const player = state.players.find((item) => item.id === playerId);
-  if (!player) return { ok: false as const, code: 'invalid' as const, message: 'Player not found.' };
-  const name = patch.name?.trim();
-  if (name === '') return { ok: false as const, code: 'invalid' as const, message: 'Enter a player name.' };
-  Object.assign(player, patch, patch.name !== undefined ? { name } : {}, { label: patch.label !== undefined ? patch.label?.trim() || null : player.label, updatedAt: new Date().toISOString() });
-  return { ok: true as const, value: player };
 }
 
 function LoadingScreen({ message = 'Loading tournament desk…' }: { message?: string }) {
@@ -407,7 +348,11 @@ function SignInScreen({ onSignIn, error }: { onSignIn: (email: string, password:
     try { setMessage(await onSignIn(email, password)); } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not sign in.'); }
     finally { setBusy(false); }
   }
-  return <main className="auth-shell"><header className="product-lockup"><span className="brand-mark">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>Shared tournament desk</small></span></header><form className="login-panel" onSubmit={(event) => void submit(event)}><p className="eyebrow">Team account</p><h1>Sign in</h1><p className="setup-copy">Use the email and password created for your organizer or scorekeeper account.</p><label><span>Email</span><input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.currentTarget.value)} /></label><label><span>Password</span><input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.currentTarget.value)} /></label>{message && <p className="field-error" role="alert">{message}</p>}<button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button><p className="table-note">Accounts are provisioned by the tournament administrator. An organizer or scorekeeper role is required.</p><a className="button button-secondary" href="/?demo=1">Try the 19-player practice demo</a></form></main>;
+  return <main className="auth-shell"><header className="product-lockup"><span className="brand-mark">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>Shared tournament desk</small></span></header><form className="login-panel" onSubmit={(event) => void submit(event)}><p className="eyebrow">Team account</p><h1>Sign in</h1><p className="setup-copy">Use the email and password created for your organizer or scorekeeper account.</p><label><span>Email</span><input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.currentTarget.value)} /></label><label><span>Password</span><input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.currentTarget.value)} /></label>{message && <p className="field-error" role="alert">{message}</p>}<button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button><p className="table-note">Accounts are provisioned by the tournament administrator. An organizer or scorekeeper role is required.</p></form></main>;
+}
+
+function MissingConfiguration() {
+  return <main className="auth-shell"><header className="product-lockup"><span className="brand-mark">TT</span><span><strong>Table Tennis Tournament Manager</strong><small>Shared tournament desk</small></span></header><section className="login-panel"><p className="eyebrow">Setup required</p><h1>Shared workspace unavailable</h1><p className="setup-copy">This app requires a configured Supabase project to load tournaments and save changes.</p><p className="table-note">Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> in the deployment environment, then reload.</p></section></main>;
 }
 
 function FirstEvent({ onCreate, onSignOut, profile }: { onCreate: (input: { name: string; startsAt: string }) => Promise<string | null>; onSignOut: () => void; profile: Profile | null }) {

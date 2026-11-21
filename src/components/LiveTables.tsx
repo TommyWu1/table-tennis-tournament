@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
-import { getEntries, resolvedDemoMatch, type DemoMatch, type DemoState } from '../lib/demo';
+import { getEntries, resolveMatchEntries, type TournamentMatch, type TournamentState } from '../lib/tournament';
 import type { Tournament } from '../types';
 
-export function entryNames(state: DemoState, eventId: string): Map<string, string> {
+export function entryNames(state: TournamentState, eventId: string): Map<string, string> {
   return new Map(getEntries(state, eventId).map((entry) => [entry.id, entry.player?.name ?? 'Unknown player']));
 }
 
-export function matchLabel(match: DemoMatch): string {
+export function matchLabel(match: TournamentMatch): string {
   return match.stage === 'groups' ? `Group ${match.groupIndex} · round ${match.round}`
     : `${match.division === 'consolation' ? 'Consolation' : 'Championship'} · round ${match.round}`;
 }
 
-export function LiveTables({ state, event, now }: { state: DemoState; event: Tournament; now?: Date }) {
+export function LiveTables({ state, event, now }: { state: TournamentState; event: Tournament; now?: Date }) {
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
     const timer = window.setInterval(() => setClock(new Date()), 15000);
@@ -24,7 +24,7 @@ export function LiveTables({ state, event, now }: { state: DemoState; event: Tou
     {Array.from({ length: event.tableCount }, (_, index) => {
       const table = index + 1;
       const match = active.find((candidate) => candidate.tableNumber === table);
-      const resolved = match ? resolvedDemoMatch(match, matches) : null;
+      const resolved = match ? resolveMatchEntries(match, matches) : null;
       // While active, updatedAt is the timestamp written by the start-match operation.
       const started = match?.updatedAt ? new Date(match.updatedAt) : null;
       const validTime = started && Number.isFinite(started.getTime());
